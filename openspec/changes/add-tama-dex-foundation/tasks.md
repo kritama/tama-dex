@@ -52,13 +52,15 @@
 - [ ] 7.1 Implement `TamaDex.Cassette.build/2` and the `mix tama_dex.cassette` task (design Decision 9). It takes `--document Mod.fun` and `--file` inputs and an `--output`, validates, rejects duplicates, writes the manifest and canonical documents, runs `VACUUM`, renames atomically, and prints the content digest and file SHA-256.
 - [ ] 7.2 Implement `TamaDex.Cassette.verify/2`: size limit, optional SHA-256, read-only open with extensions off, an exact `sqlite_master` allowlist with no triggers or views, the manifest format, document and content digests, and profile validation of every document.
 - [ ] 7.3 Implement `TamaDex.import/3`. Copy mode applies only with a matching pin and the same index schema version. Every other case uses rebuild mode. Both use per-source atomic replacement and duplicate rules, rebuild the compiled schemas, and report the mode and `changed` for each source.
-- [ ] 7.4 Test every cassette scenario: a build from module functions and files; the same documents giving the same content digest; tampered rows without a pin rebuilt from documents; a wrong pin rejected; an altered embedded document rejected; triggers and views rejected; an older index schema imported in rebuild mode; and an oversized file rejected before opening.
+- [ ] 7.4 Implement design Decision 10: `timeout` for `load/3` and `import/3` with rollback; `async: true` import in the index process; `TamaDex.Index.status/1` with progress and telemetry; and `not_ready` from `search`/`describe`/`execute` and the MCP handlers only while nothing is committed. Test the deadline, background import, reload-keeps-serving and not-ready scenarios.
+- [ ] 7.5 Test every cassette scenario: a build from module functions and files; the same documents giving the same content digest; tampered rows without a pin rebuilt from documents; a wrong pin rejected; an altered embedded document rejected; triggers and views rejected; an older index schema imported in rebuild mode; and an oversized file rejected before opening.
 
 ## 8. Telemetry, documentation and release readiness
 
 - [ ] 8.1 Emit the load, search and execute `:start`/`:stop`/`:exception` events and the index `:recreated` event, with metadata limited as in Decision 8. Test that the metadata holds no query text, inputs, results or schemas.
 - [ ] 8.2 Write the README usage (start the index, load documents, register executors, wire the two tools), add `CHANGELOG.md`, write module docs for every public module, and run `mix docs` without warnings.
 - [ ] 8.3 Add a release workflow modeled on `tama_mcp`'s `release.yml`. It publishes only from `main`, in the `hex` environment, with `HEX_API_KEY`. Running a release needs user authorization.
+- [ ] 8.4 Measure and record, in the changelog, rebuild and copy-mode import times for a 1024-operation fixture and for the opsmaru_incus documents on a GitHub-hosted runner, against the 2 s target in Decision 10.
 
 ## 9. Producer evidence
 

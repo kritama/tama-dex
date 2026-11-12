@@ -54,6 +54,36 @@ The library SHALL have no application callback.
 - **WHEN** the same document is loaded twice
 - **THEN** the second call reports `changed: false` and performs no write
 
+### Requirement: Startup-bounded indexing and readiness
+
+- `TamaDex.load/3` and `TamaDex.import/3` SHALL accept a `timeout`. On expiry
+  they SHALL roll back the source transaction, keep the previous entries and
+  return `{:error, :deadline}`.
+- `import/3` with `async: true` SHALL return after the size and SHA-256
+  checks, and finish in the index process.
+- `TamaDex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
+  or a failure.
+- While no source has been committed and indexing is in progress, `search`,
+  `describe` and `execute` SHALL return `not_ready` with `dispatched: false`,
+  without blocking.
+- A source being reloaded SHALL keep serving its previous entries until its
+  new entries commit.
+
+#### Scenario: Deadline during rebuild
+
+- **WHEN** a rebuild import exceeds its `timeout`
+- **THEN** it returns `{:error, :deadline}`, and the index holds exactly its previous sources
+
+#### Scenario: Background import at host startup
+
+- **WHEN** a host starts the index, calls `import` with `async: true` and immediately serves a search
+- **THEN** the call returns at once, the search returns `not_ready` until the import commits, and the host's startup is not blocked
+
+#### Scenario: Reload keeps serving
+
+- **WHEN** a source is re-imported in the background while callers search it
+- **THEN** they keep receiving the previous entries until the new ones commit
+
 ### Requirement: Derived, versioned storage
 
 The SQLite database SHALL be treated as derived data.

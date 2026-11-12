@@ -59,6 +59,8 @@ with the per-source atomic replacement and duplicate rules of `load/2`.
   pin and the cassette's index schema version equals the index's.
 - In every other case it SHALL rebuild from the embedded documents.
 - It SHALL report, for each source, whether it changed and which mode was used.
+- It SHALL honour the `timeout` and `async` options of the startup-bounded
+  indexing requirement.
 - tama-dex MUST NOT download cassettes. Hosts supply local files.
 
 #### Scenario: Pinned release cassette

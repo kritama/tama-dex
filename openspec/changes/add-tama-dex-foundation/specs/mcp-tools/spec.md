@@ -36,6 +36,11 @@ description, JSON Schema 2020-12 input and output schemas, and annotations.
 - **WHEN** a caller allowed to call the `execute` tool, but without `incus.delete`, executes `incus_instance_delete`
 - **THEN** the handler returns a `not_found` error object, and no executor is called
 
+#### Scenario: Index not ready
+
+- **WHEN** a caller uses either tool while the host's first import is still running
+- **THEN** the handler returns a `not_ready` error object with `dispatched: false`, and does not wait
+
 #### Scenario: Arguments fail the tool schema
 
 - **WHEN** `handle_execute/4` receives arguments without `operation_id`

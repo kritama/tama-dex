@@ -75,7 +75,10 @@ The library has no `Application` module.
 
 ```elixir
 TamaDex.Profile.validate(document) :: {:ok, TamaDex.Document.t()} | {:error, [TamaDex.Profile.Issue.t()]}
-TamaDex.load(index, document)      :: {:ok, %{source: s, operations: n, changed: boolean}} | {:error, term}
+TamaDex.load(index, document, opts) :: {:ok, %{source: s, operations: n, changed: boolean}} | {:error, term}
+TamaDex.import(index, path, opts)   :: {:ok, [%{source, changed, mode}]} | {:error, term}
+                                     # opts: sha256:, timeout:, async: true (returns :ok at once)
+TamaDex.Index.status(index)        :: :ready | :empty | {:importing, progress} | {:failed, reason}
 TamaDex.unload(index, source)      :: :ok
 TamaDex.sources(index)             :: [%{source, title, version, profile, digest, operations, loaded_at}]
 TamaDex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}}
@@ -244,7 +247,9 @@ optional bounded `details`.
 `%{name, title, description, input_schema, output_schema, annotations}`.
 
 - **`search` input:** `{query?, source?, tags?, limit?, include_schemas?}`.
-- **`execute` input:** `{operation_id, input}`. The output is either a result
+- **`execute` input:** `{operation_id, input}`.
+- **Not ready:** both handlers return a `not_ready` error object while the
+  index has nothing committed. The output is either a result
   object or an `error` object.
 - **Handlers:** `handle_search/3` and `handle_execute/4` take the caller's
   verified scopes from `caller` and return JSON-safe maps.
@@ -312,6 +317,31 @@ imports.
 - **Hosts** choose where cassettes come from, such as an asset bundled at
   build time or downloaded and pinned by digest. tama-dex never downloads
   anything.
+
+### 10. Startup budget and readiness
+
+Hosts index during startup: Macus runs one serialized bootstrap with a single
+deadline. Search must never block or fail VM startup; the index is gateway
+readiness that may lag runtime readiness.
+
+- **Deadlines:** `load/3` and `import/3` accept `timeout:` (milliseconds).
+  Work runs in the index process inside the source transaction. When the
+  deadline passes, the transaction is rolled back, the previous entries stay
+  in place, and the call returns `{:error, :deadline}`.
+- **Background import:** `import(index, path, async: true, ...)` returns `:ok`
+  once the cassette has been checked for size and file SHA-256, and imports in
+  the index process.
+  - `TamaDex.Index.status/1` reports `:empty`, `{:importing, %{done: n,
+    total: m}}`, `:ready` or `{:failed, reason}`, and emits telemetry on each
+    change.
+  - A host can await readiness or poll it.
+- **Not-ready behaviour:** `search/3`, `describe/3` and `execute/4` return
+  `{:error, :not_ready}` (a `not_ready` error with `dispatched: false`) only
+  while the index has no committed source and an import or load is running.
+  A source being reloaded keeps serving its previous entries until the commit.
+- **Performance target:** rebuilding a 1024-operation document set completes
+  within 2 s on a GitHub-hosted runner, and copy mode faster. This is measured
+  as release evidence (task 8.4), not asserted in unit tests.
 
 ## Risks
 
