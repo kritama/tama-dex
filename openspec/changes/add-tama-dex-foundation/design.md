@@ -57,8 +57,14 @@
 
 The library has no `Application` module.
 
-- **Index process:** `TamaDex.Index.start_link(opts)` starts one GenServer.
-  It owns a single exqlite connection and serializes loads.
+- **Index process:** `TamaDex.Index.start_link(opts)` starts one GenServer
+  that owns two exqlite connections. A read connection serves `search`,
+  `describe` and lookups. A write connection is used only by a linked writer
+  process that runs loads and imports, one at a time.
+  - In WAL mode, readers keep seeing the last committed state while a write is
+    in progress, so a background import never blocks searches.
+  - For `:memory`, both connections use one shared-cache in-memory database,
+    so the writer's commits are visible to reads.
   - Options: `path:` (required; a file path or `:memory`), `name:` (optional),
     `limits:` (optional, never above the profile limits).
   - The host decides where the database lives (Macus default:
@@ -67,10 +73,10 @@ The library has no `Application` module.
 - **Compiled schema cache:** input and response schemas are compiled with
   jsonschex. The index process holds them in a protected ETS table keyed by
   operation and document digest.
-  - Reads (`search`, lookup for `execute`) run in the caller's process. They
-    use a short read through the index process, and validation runs against
-    the ETS cache.
-  - So a slow executor never blocks the index.
+  - Reads (`search`, lookup for `execute`) are short queries on the read
+    connection, and never wait behind a load or import. Validation and
+    dispatch run in the caller's process against the ETS cache.
+  - So neither a slow executor nor a running import blocks the index.
 - **Public API:**
 
 ```elixir

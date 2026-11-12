@@ -14,7 +14,7 @@
 
 ## 3. Index
 
-- [ ] 3.1 Implement `TamaDex.Index` (design Decisions 1 and 4).
+- [ ] 3.1 Implement `TamaDex.Index` (design Decisions 1 and 4), with separate read and write connections, the writer running in a linked process, and a shared-cache in-memory database for `:memory`.
   - `start_link/1` takes a required `path` (file or `:memory`), an optional `name` and limits.
   - A database file is created with mode 0600, in WAL mode, with foreign keys on.
   - Schema version 1 is created on first open. Any other version is dropped and recreated, emitting `[:tama_dex, :index, :recreated]`.
