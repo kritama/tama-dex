@@ -50,6 +50,16 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
   - Errors say whether the operation was dispatched. An invalid result keeps
     the operation's declared identity values for reconciliation.
   - Nothing is retried, stored or logged.
+- **Cassettes:** a portable, read-only SQLite file (`.tama-cassette`). It
+  holds a prebuilt index plus the canonical documents it was built from and
+  their digests.
+  - Producers build one in CI with `mix tama_dex.cassette`. opsmaru_incus will
+    publish one with every release.
+  - Hosts verify and import it at install or start. Prebuilt rows are copied
+    only when the host pins the cassette's SHA-256. Otherwise the index is
+    rebuilt from the embedded documents.
+  - A cassette built with a different index schema version is rebuilt from
+    its documents.
 - **MCP tool definitions:** the `search` and `execute` tool definitions
   (name, title, description, input and output schemas) as data, with handler
   functions returning JSON-safe results. Hosts wrap them in their own MCP
@@ -68,6 +78,7 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
 - `operation-execute`: validated, single dispatch to host executors.
 - `mcp-tools`: the `search`/`execute` tool definitions and handlers for host
   MCP servers.
+- `cassette`: building, verifying and importing portable prebuilt index files.
 
 ## Impact
 

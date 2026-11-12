@@ -260,6 +260,59 @@ optional bounded `details`.
 - **Metadata:** limited to the source, operation ID, counts, result kind and
   durations. Never query text beyond its length, inputs, results or schemas.
 
+### 9. Cassettes
+
+A cassette is a prebuilt index that a producer's CI publishes and a host
+imports. The user's target flow: an opsmaru_incus release runs indexing and
+publishes a downloadable cassette, which `macus install` or `macus start`
+imports.
+
+- **Format `tama-cassette/1`:** one SQLite file holding the version 1 index
+  tables plus:
+  - `cassette_manifest`, with the format, tama-dex version, index schema
+    version, SQLite version, profile and content digest;
+  - `cassette_documents(source, digest, document)`, with each source's
+    canonical JSON.
+
+  The content digest is the SHA-256 of the format, the index schema version
+  and the sorted `(source, document digest)` pairs. A cassette stores no
+  wall-clock time, so `loaded_at` is set at import. The build ends with
+  `VACUUM`, so the file is compact. Identical bytes are not guaranteed across
+  SQLite versions, so identity is the content digest.
+- **Build:** `TamaDex.Cassette.build(documents, path)` validates every
+  document, rejects duplicate IDs across them, writes to a temporary file and
+  renames it into place. `mix tama_dex.cassette --document Mod.fun ...
+  --file doc.json ... --output path` runs in a producer's CI, calling
+  zero-arity functions from the project's code or reading JSON files, and
+  prints the content digest and file SHA-256. tama_dex is then only a
+  dev/test dependency of the producer.
+- **Verify:** `TamaDex.Cassette.verify(path, sha256: pin)` treats the file as
+  untrusted. It:
+  - checks the size limit (64 MiB) and, when given, the file SHA-256;
+  - opens the file read-only, with extension loading off;
+  - requires `sqlite_master` to hold exactly the expected tables, indexes and
+    FTS shadow tables, with no triggers or views;
+  - checks the manifest format;
+  - recomputes every embedded document's digest and the content digest;
+  - validates every document against the profile.
+
+  It returns the manifest or bounded issues.
+- **Import:** `TamaDex.import(index, path, sha256: pin)` verifies first, then
+  installs each source with the same per-source replacement and duplicate
+  rules as `load/2`, in one transaction.
+  - **Copy mode** is used only when the host passed a matching `sha256` pin
+    and the index schema version matches. Rows are copied from the attached
+    read-only cassette, and the compiled schemas are rebuilt.
+  - **Rebuild mode** is used otherwise: without a pin, with a schema mismatch,
+    or with a cassette from another tama-dex version. Each embedded document
+    is loaded as `load/2` would.
+  - Results report each source's `changed` flag and the mode. An unpinned
+    cassette therefore can't inject index rows that differ from its verified
+    documents.
+- **Hosts** choose where cassettes come from, such as an asset bundled at
+  build time or downloaded and pinned by digest. tama-dex never downloads
+  anything.
+
 ## Risks
 
 - **FTS ranking quality** is lexical. Mitigations: weighted columns, exact-ID
@@ -268,6 +321,10 @@ optional bounded `details`.
 - **A producer emitting a slightly wrong document** makes the load fail
   loudly, with pointers, and leaves the previous version in place. Producers
   get `TamaDex.Profile.validate/1` and fixtures for their tests.
+- **A tampered or malformed cassette:** a SHA-256 pin is required for copy
+  mode. Otherwise the index is rebuilt from documents whose digests were
+  verified. A strict check of `sqlite_master` rejects triggers and views, and
+  the cassette is opened read-only.
 - **Concurrent hosts on one database file:** only one host process should own
   a database path. WAL keeps reads consistent, but the design assumes a single
   writer.

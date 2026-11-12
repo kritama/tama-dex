@@ -27,6 +27,13 @@ replaces that with:
    input schema, then hands the call to the executor the host registered for
    that source, for example `Opsmaru.Incus.Operations.run/3`.
 
+5. **Cassettes.** A producer's CI can build a portable, prebuilt index file
+   (`.tama-cassette`) with `mix tama_dex.cassette`. For example, every
+   opsmaru_incus release publishes one. A host verifies it and imports it at
+   install or start. Prebuilt rows are copied only when the host pins the
+   cassette's SHA-256. Otherwise the index is rebuilt from the documents
+   embedded in the cassette.
+
 ## Boundary
 
 ```text
@@ -41,7 +48,7 @@ replaces that with:
 ```
 
 TamaDex is a library. It starts nothing on load, holds no listener, never
-fetches documents over the network, and never runs an operation itself. It
+fetches documents or cassettes over the network, and never runs an operation itself. It
 doesn't depend on `tama_mcp`. It provides the two tool definitions as data
 for the host's MCP server.
 

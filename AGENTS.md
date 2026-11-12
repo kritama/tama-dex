@@ -15,7 +15,11 @@ server.
   host starts `TamaDex.Index` under its own supervisor, with an explicit
   database path, and passes the index into every call.
 - Do not add HTTP endpoints, listeners, Phoenix, Ecto, Plug servers, an MCP
-  server, or network fetching of documents. Hosts pass documents as data.
+  server, or network fetching of documents or cassettes. Hosts pass documents
+  as data and cassettes as local files.
+- Treat cassettes as untrusted until verified. Copy prebuilt rows only under a
+  host-supplied SHA-256 pin. Otherwise rebuild from the embedded documents
+  after checking their digests.
 - Do not depend on `tama_mcp`, `opsmaru_incus` or Macus. tama-dex supplies
   the `search`/`execute` tool definitions as data, plus handler functions. The
   host's MCP server wraps them.

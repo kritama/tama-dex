@@ -47,12 +47,19 @@
 - [ ] 6.1 Implement `TamaDex.MCP.search_tool/0`, `execute_tool/0`, `handle_search/3` and `handle_execute/4` (Decision 7). Schemas reject unknown properties. Arguments that fail a tool schema return `invalid_arguments` before any lookup. Handlers use only the caller's verified scopes.
 - [ ] 6.2 Add a README section and a test showing a TamaMCP host's two tool modules built from these definitions with `raw_input_schema`/`raw_output_schema`. Use `tama_mcp` as a test-only dependency, or an equivalent schema-identity test if that would create a cycle.
 
-## 7. Telemetry, documentation and release readiness
+## 7. Cassettes
 
-- [ ] 7.1 Emit the load, search and execute `:start`/`:stop`/`:exception` events and the index `:recreated` event, with metadata limited as in Decision 8. Test that the metadata holds no query text, inputs, results or schemas.
-- [ ] 7.2 Write the README usage (start the index, load documents, register executors, wire the two tools), add `CHANGELOG.md`, write module docs for every public module, and run `mix docs` without warnings.
-- [ ] 7.3 Add a release workflow modeled on `tama_mcp`'s `release.yml`. It publishes only from `main`, in the `hex` environment, with `HEX_API_KEY`. Running a release needs user authorization.
+- [ ] 7.1 Implement `TamaDex.Cassette.build/2` and the `mix tama_dex.cassette` task (design Decision 9). It takes `--document Mod.fun` and `--file` inputs and an `--output`, validates, rejects duplicates, writes the manifest and canonical documents, runs `VACUUM`, renames atomically, and prints the content digest and file SHA-256.
+- [ ] 7.2 Implement `TamaDex.Cassette.verify/2`: size limit, optional SHA-256, read-only open with extensions off, an exact `sqlite_master` allowlist with no triggers or views, the manifest format, document and content digests, and profile validation of every document.
+- [ ] 7.3 Implement `TamaDex.import/3`. Copy mode applies only with a matching pin and the same index schema version. Every other case uses rebuild mode. Both use per-source atomic replacement and duplicate rules, rebuild the compiled schemas, and report the mode and `changed` for each source.
+- [ ] 7.4 Test every cassette scenario: a build from module functions and files; the same documents giving the same content digest; tampered rows without a pin rebuilt from documents; a wrong pin rejected; an altered embedded document rejected; triggers and views rejected; an older index schema imported in rebuild mode; and an oversized file rejected before opening.
 
-## 8. Producer evidence
+## 8. Telemetry, documentation and release readiness
 
-- [ ] 8.1 Once `opsmaru_incus` publishes `Operations.openapi/0`, add a test-only dependency and a test that its document validates, loads, and that a representative search and a stubbed execute (one read and one destructive with confirmation) behave as specified. Leave this task open until that release exists, and record the version used.
+- [ ] 8.1 Emit the load, search and execute `:start`/`:stop`/`:exception` events and the index `:recreated` event, with metadata limited as in Decision 8. Test that the metadata holds no query text, inputs, results or schemas.
+- [ ] 8.2 Write the README usage (start the index, load documents, register executors, wire the two tools), add `CHANGELOG.md`, write module docs for every public module, and run `mix docs` without warnings.
+- [ ] 8.3 Add a release workflow modeled on `tama_mcp`'s `release.yml`. It publishes only from `main`, in the `hex` environment, with `HEX_API_KEY`. Running a release needs user authorization.
+
+## 9. Producer evidence
+
+- [ ] 9.1 Once `opsmaru_incus` publishes `Operations.openapi/0`, add a test-only dependency and a test that its document validates, loads, and that a representative search and a stubbed execute (one read and one destructive with confirmation) behave as specified. Also import the cassette attached to that opsmaru_incus GitHub Release, pinned by its published SHA-256. Leave this task open until that release exists, and record the version used.
