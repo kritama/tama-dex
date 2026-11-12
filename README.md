@@ -28,8 +28,8 @@ replaces that with:
 4. **`execute`.** The caller names the cassette and operation. It checks the
    caller's scopes, any confirmation rule and the input schema, then hands the
    call to the executor the host registered for that source: a host module
-   implementing `Tama.Dex.Executor`, for example an adapter around
-   `Opsmaru.Incus.Operations.Composite.run/3`.
+   implementing `Tama.Dex.Executor`, typically an adapter around the
+   producer's own run function.
 
 5. **Cassettes.** A producer's CI can build a portable, prebuilt index file
    (`.tama-cassette`) with `mix tama.dex.cassette`. For example, every
@@ -49,7 +49,7 @@ replaces that with:
                  │
                  └── MCP server: search / execute ── Tama.Dex handlers
                                                        │
-                                     host executor per source (run/3, ...)
+                                     host executor per source (Tama.Dex.Executor)
 ```
 
 tama-dex is a library. It starts nothing on load, holds no listener, never

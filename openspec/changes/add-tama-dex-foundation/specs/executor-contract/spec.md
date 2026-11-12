@@ -35,8 +35,8 @@ module implementing `Tama.Dex.Executor`, or `{module, opts}`.
 
 #### Scenario: Registration with options
 
-- **WHEN** a host registers `%{"opsmaru_incus" => {Macus.Dex.IncusExecutor, host: Macus.MCP.IncusHost}}`
-- **THEN** each dispatched call reaches `Macus.Dex.IncusExecutor.execute/2` with `call.opts` equal to `[host: Macus.MCP.IncusHost]`
+- **WHEN** a host registers `%{"acme" => {MyHost.AcmeExecutor, authorizer: MyHost.Authorizer}}`
+- **THEN** each dispatched call for source `acme` reaches `MyHost.AcmeExecutor.execute/2` with `call.opts` equal to `[authorizer: MyHost.Authorizer]`
 
 #### Scenario: Module without the callback
 
@@ -57,7 +57,7 @@ producers.
 - tama-dex SHALL NOT define an Elixir protocol for this, because executors
   are chosen by source ID, not by the type of a value.
 
-#### Scenario: opsmaru_incus behind a host adapter
+#### Scenario: Producer behind a host adapter
 
-- **WHEN** Macus registers `Macus.Dex.IncusExecutor`, which calls `Opsmaru.Incus.Operations.Composite.run/3` with `host:`, the verified caller from `call.context` and `call.scopes`
-- **THEN** opsmaru_incus operations execute through tama-dex, while opsmaru_incus compiles without tama_dex
+- **WHEN** a host registers an adapter module that calls a producer library's own run function with the host's authorization module, the verified caller from `call.context` and `call.scopes`
+- **THEN** that producer's operations execute through tama-dex, while the producer library compiles without tama_dex

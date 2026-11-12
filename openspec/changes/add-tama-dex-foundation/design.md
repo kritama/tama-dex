@@ -3,27 +3,25 @@
 ## Context
 
 - **First producer:** `opsmaru_incus` 0.1.0 (Hex, 2026-11-12).
-  - `Opsmaru.Incus.Operations.all/0` lists 32 operations (moving to
-    `Opsmaru.Incus.Operations.Composite` in 0.2.0, beside
-    `Opsmaru.Incus.Operations.Native`), and `describe/1`
-    returns each one's name, title, description, scope, destructive flag,
+  - It exports 32 operations, and each descriptor gives the operation's name, title, description, scope, destructive flag,
     confirmation (`%{"field" => "confirm", "value" => "the full fingerprint"}`
     or `nil`), bounds, input and output schemas, and the client evidence it
     requires.
   - Scopes are `incus.read` (22), `incus.write` (5), `incus.exec` (1) and
     `incus.delete` (4). Output schemas are `oneOf` a success object and an
     `error` object.
-  - `Operations.run(name, input, host:, caller:, scopes:)` re-checks scopes and
-    confirmation, validates the input, asks the host to authorize and only then
-    contacts Incus.
-  - The library has no `openapi/0` yet.
+  - Its run function re-checks scopes and confirmation, validates the input,
+    asks the host to authorize and only then contacts Incus.
+  - It doesn't publish profile documents yet; that is planned for 0.2.0, in
+    opsmaru-incus's own change. tama-dex names no producer modules.
 - **First host:** Macus (upmaru/macus#9, `feature/elixir-server`).
   - `/mcp` advertises exactly `search` and `execute`.
   - Its catalogue combines `opsmaru_incus` operations with Macus runtime
-    operations, and `Operations.unavailable/0` entries are excluded. With
+    operations, and operations the producer marks unavailable are excluded. With
     cassette namespaces (Decision 3), names need only be unique within one
     cassette.
-  - `execute` passes the caller's verified scopes into `run/3`, so the MCP tool
+  - `execute` passes the caller's verified scopes into the producer's run
+    function, so the MCP tool
     scope is only an outer gate. `search` filters by the caller's scopes.
   - It has recorded open questions on index ownership (see below).
 - **Kritama conventions (`tama_mcp` 0.2.0):** Elixir 1.19.5 on OTP 27.3.4.16,
@@ -70,10 +68,13 @@ The library has no `Application` module.
   - For `:memory`, both connections open one in-memory database through the
     `memdb` VFS, under a name unique to the index process
     (`file:/tama-dex-<unique>?vfs=memdb`), so the writer's commits are
-    visible to reads. `memdb` has no WAL, so a read issued during a write
-    waits for the commit, under the read connection's busy timeout, instead
-    of seeing the previous state. It still never sees a mixture. `:memory` is
-    meant for tests and short-lived hosts.
+    visible to reads. `memdb` has no WAL, so the connections use
+    rollback-journal locks. A read during a write may keep seeing the
+    previous state until the writer takes its exclusive lock to commit, and
+    then waits for the commit under the read connection's busy timeout. The
+    writer may likewise wait for in-flight reads under its own busy timeout.
+    A read never sees a mixture. `:memory` is meant for tests and
+    short-lived hosts.
   - Rejected for `:memory`: a shared-cache database. Its table locks fail
     reads with `SQLITE_LOCKED` during a write, and a busy timeout does not
     apply to them.
@@ -479,8 +480,8 @@ On 2026-11-12 the user chose an Elixir behaviour for the calling side.
 - **Registration:** `%{source => module | {module, opts}}`. Anything else, or
   a module without `execute/2`, is `no_executor` before dispatch.
 - **Who implements it:** host adapter modules. A producer's run function
-  needs host-only arguments (Macus: `host: Macus.MCP.IncusHost`, the verified
-  caller), so the adapter is host glue. Producers keep no compile-time or
+  needs host-only arguments (for example the host's authorization module and
+  the verified caller), so the adapter is host glue. Producers keep no compile-time or
   runtime dependency on tama_dex: they publish documents as data and their
   own run functions.
 - **Indexing stays a data contract.** The `tama-operations/1` document is the
