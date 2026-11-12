@@ -3,8 +3,8 @@
 ## Context
 
 - **First producer:** `opsmaru_incus` 0.1.0 (Hex, 2026-11-12).
-  - It exports 32 operations, and each descriptor gives the operation's name, title, description, scope, destructive flag,
-    confirmation (`%{"field" => "confirm", "value" => "the full fingerprint"}`
+  - It exports 32 operations, and each descriptor gives the operation's name,
+    title, description, scope, destructive flag, confirmation (`%{"field" => "confirm", "value" => "the full fingerprint"}`
     or `nil`), bounds, input and output schemas, and the client evidence it
     requires.
   - Scopes are `incus.read` (22), `incus.write` (5), `incus.exec` (1) and
