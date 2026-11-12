@@ -39,7 +39,7 @@ naming conventions only. tama-dex never makes HTTP calls to them.
 
 | Field | Rule |
 |---|---|
-| `operationId` | MUST match `^[a-z][a-z0-9_]{0,127}$` and equal the path suffix. It MUST be unique within the document and across every document loaded into an index. |
+| `operationId` | MUST match `^[a-z][a-z0-9_]{0,127}$` and equal the path suffix. It MUST be unique within the document, and within the cassette the document is installed in. The same ID MAY appear in other cassettes; hosts address operations by cassette and `operationId`. |
 | `summary` | MUST be present, at most 120 characters. |
 | `description` | MUST be present, at most 4096 characters. |
 | `tags` | MAY list up to 16 unique strings of at most 64 characters, for example the resource name. |

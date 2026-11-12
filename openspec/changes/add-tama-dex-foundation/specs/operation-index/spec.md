@@ -11,7 +11,8 @@ The library SHALL have no application callback.
 - A host SHALL start `Tama.Dex.Index` explicitly, under its own supervisor,
   with a required `path` (a file path, or `:memory`).
 - A database file MUST be created with mode 0600 and opened in WAL mode.
-- One index process SHALL own the connection and serialize writes.
+- One index process SHALL own the connections and serialize writes.
+- One index SHALL hold every cassette the host installs.
 
 #### Scenario: Dependency loaded without an index
 
@@ -23,35 +24,63 @@ The library SHALL have no application callback.
 - **WHEN** `Tama.Dex.Index.start_link/1` is called without `path`
 - **THEN** it fails to start with an argument error, and creates nothing
 
-### Requirement: Per-source loading
+### Requirement: Cassette namespaces
 
-`Tama.Dex.load/2` SHALL validate a whole profile document before writing.
+Every source in an index SHALL belong to exactly one cassette, which is its
+namespace.
 
-- It SHALL replace every entry of that document's source in a single
-  transaction.
+- A cassette name SHALL match `^[a-z][a-z0-9_]{0,63}$`.
+- Source IDs and `operationId`s SHALL be unique within a cassette. They MAY
+  repeat across cassettes.
+- Operations SHALL be addressed by `(cassette, operation_id)`.
+- A cassette SHALL be either imported (from a cassette file) or local (built
+  by `load/3`). Loading into an imported cassette's name, or importing over a
+  local cassette's name, MUST fail with `cassette_conflict` and change
+  nothing.
+- Changes to one cassette MUST NOT alter any other cassette.
+- `Tama.Dex.unload/2` SHALL remove one cassette.
+- `Tama.Dex.cassettes/1` SHALL report each cassette's name, kind, version,
+  status, import mode, digest, load time and sources (title, version,
+  profile, digest and operation count).
+
+#### Scenario: Same operation name in two cassettes
+
+- **WHEN** the `macus` cassette and the `opsmaru_incus` cassette both declare `list_instances`
+- **THEN** both are installed, and each is addressed by its own cassette name
+
+#### Scenario: Name held by the other kind
+
+- **WHEN** a host calls `load/3` with `cassette: "opsmaru_incus"` while `opsmaru_incus` is an imported cassette
+- **THEN** the load fails with `cassette_conflict`, and the imported cassette is unchanged
+
+### Requirement: Local cassette loading
+
+`Tama.Dex.load/3` SHALL validate a whole profile document before writing, and
+install it as one source of the local cassette named by its required
+`cassette` option.
+
+- It SHALL replace every entry of that source in a single transaction.
 - Reloading a document with the same canonical-JSON SHA-256 digest SHALL change
   nothing and report `changed: false`.
-- An `operationId` already owned by another source MUST make the whole load
-  fail, naming the conflicting IDs and source, with no change.
+- An `operationId` already owned by another source of the same cassette MUST
+  make the whole load fail, naming the conflicting IDs and source, with no
+  change.
 - A failed load MUST leave the source's previous entries and compiled schemas
   in place.
-- `Tama.Dex.unload/2` SHALL remove one source's entries.
-- `Tama.Dex.sources/1` SHALL report each source's title, version, profile,
-  digest, operation count and load time.
 
 #### Scenario: Source replaced atomically
 
-- **WHEN** a host loads a new version of the `opsmaru_incus` document that drops one operation and adds another
+- **WHEN** a host loads a new version of the `macus` runtime document that drops one operation and adds another
 - **THEN** after the call, search and execute see exactly the new set, and no reader observes a mixture
 
-#### Scenario: Duplicate operation across sources
+#### Scenario: Duplicate operation within a cassette
 
-- **WHEN** the `macus` document declares an `operationId` already loaded from `opsmaru_incus`
-- **THEN** the load fails with `duplicate_operation`, naming the ID and `opsmaru_incus`, and both sources keep their entries
+- **WHEN** a second document loaded into the local `macus` cassette declares an `operationId` already owned by another of its sources
+- **THEN** the load fails with `duplicate_operation`, naming the ID and the owning source, and the cassette keeps its entries
 
 #### Scenario: Unchanged reload
 
-- **WHEN** the same document is loaded twice
+- **WHEN** the same document is loaded twice into the same cassette
 - **THEN** the second call reports `changed: false` and performs no write
 
 ### Requirement: Startup-bounded indexing and readiness
@@ -62,26 +91,33 @@ The library SHALL have no application callback.
 - `import/3` with `async: true` SHALL return after the size and SHA-256
   checks, and finish in the index process.
 - `Tama.Dex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
-  or a failure.
-- While no source has been committed and indexing is in progress, `search`,
+  or a failure. `:ready` SHALL mean at least one cassette is committed.
+- `Tama.Dex.cassettes/1` SHALL report each cassette's own status.
+- While no cassette has been committed and indexing is in progress, `search`,
   `describe` and `execute` SHALL return `not_ready` with `dispatched: false`,
-  without blocking.
-- A source being reloaded SHALL keep serving its previous entries until its
-  new entries commit.
+  without blocking. `describe` and `execute` SHALL also return it for a
+  cassette whose first import is still running.
+- A cassette being re-imported, or a source being reloaded, SHALL keep serving
+  its previous entries until its new entries commit.
 
 #### Scenario: Deadline during rebuild
 
 - **WHEN** a rebuild import exceeds its `timeout`
-- **THEN** it returns `{:error, :deadline}`, and the index holds exactly its previous sources
+- **THEN** it returns `{:error, :deadline}`, and the index holds exactly its previous cassettes
 
 #### Scenario: Background import at host startup
 
 - **WHEN** a host starts the index, calls `import` with `async: true` and immediately serves a search
 - **THEN** the call returns at once, the search returns `not_ready` until the import commits, and the host's startup is not blocked
 
+#### Scenario: Second cassette still importing
+
+- **WHEN** a host imports `opsmaru_incus` and then `macus` in the background, and a caller searches after only `opsmaru_incus` has committed
+- **THEN** the search returns `opsmaru_incus` results, `cassettes/1` reports `macus` as importing, and executing a `macus` operation returns `not_ready`
+
 #### Scenario: Reload keeps serving
 
-- **WHEN** a source is re-imported in the background while callers search it
+- **WHEN** a cassette is re-imported in the background while callers search it
 - **THEN** they keep receiving the previous entries until the new ones commit
 
 ### Requirement: Derived, versioned storage
@@ -98,14 +134,14 @@ The SQLite database SHALL be treated as derived data.
 #### Scenario: Older index file
 
 - **WHEN** a host opens a database written by an older schema version
-- **THEN** every table is recreated empty, `[:tama_dex, :index, :recreated]` is emitted, and `Tama.Dex.sources/1` returns an empty list
+- **THEN** every table is recreated empty, `[:tama_dex, :index, :recreated]` is emitted, and `Tama.Dex.cassettes/1` returns an empty list
 
 ### Requirement: Index persistence
 
-A file-backed index SHALL keep its loaded sources across restarts of the index
+A file-backed index SHALL keep its cassettes across restarts of the index
 process and of the host.
 
 #### Scenario: Host restart
 
 - **WHEN** a host restarts and opens the same database path without loading documents
-- **THEN** previously loaded sources are searchable, and the compiled schemas are rebuilt from the stored schemas before the first execute
+- **THEN** previously installed cassettes are searchable, and the compiled schemas are rebuilt from the stored schemas before the first execute

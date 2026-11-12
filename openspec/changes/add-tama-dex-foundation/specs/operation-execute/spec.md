@@ -4,11 +4,13 @@
 
 ### Requirement: Validation before dispatch
 
-`Tama.Dex.execute/4` SHALL run in the caller's process. It SHALL check, in order:
+`Tama.Dex.execute/5` SHALL take a required cassette name and an
+`operationId`, and run in the caller's process. It SHALL check, in order:
 
-1. the operation exists and is visible to the caller's verified scopes,
-   reporting `not_found` otherwise, including for operations that exist but are
-   hidden;
+1. the operation exists in that cassette and is visible to the caller's
+   verified scopes, reporting `not_found` otherwise, including for unknown
+   cassettes and for operations that exist but are hidden, and `not_ready`
+   for a cassette whose first import is still running;
 2. an executor is registered for the operation's source (`no_executor`
    otherwise);
 3. the input is a map of at most 1 MiB once encoded that validates against
@@ -19,6 +21,11 @@
    otherwise).
 
 No executor SHALL be called unless every check passes.
+
+#### Scenario: Operation looked up in the named cassette only
+
+- **WHEN** `list_instances` exists in the `macus` cassette but not in `opsmaru_incus`, and a caller executes it with `cassette: "opsmaru_incus"`
+- **THEN** execute returns `not_found`, and the `macus` operation is not run
 
 #### Scenario: Missing scope
 
@@ -74,7 +81,7 @@ or `{module, function, extra_args}`, returning `{:ok, map}` or
 - A mismatch SHALL return `invalid_output`, without any of the result's
   content except the values of the operation's `x-tama-identity` properties
   that are top-level strings, integers or booleans of at most 256 bytes.
-- A valid success SHALL return `{:ok, %{operation_id, source, result}}`.
+- A valid success SHALL return `{:ok, %{cassette, operation_id, source, result}}`.
 
 #### Scenario: Producer bug
 
@@ -85,8 +92,8 @@ or `{module, function, extra_args}`, returning `{:ok, map}` or
 
 Every error tama-dex produces SHALL carry `dispatched`.
 
-- `not_found`, `no_executor`, `invalid_input` and `confirmation_required`
-  SHALL carry `dispatched: false`.
+- `not_found`, `not_ready`, `no_executor`, `invalid_input` and
+  `confirmation_required` SHALL carry `dispatched: false`.
 - `dispatch_failed` and `invalid_output` SHALL carry `dispatched: true`, with
   a message stating that the operation may have taken effect and must be
   reconciled rather than retried.
@@ -106,4 +113,4 @@ and a message of at most 256 bytes.
 #### Scenario: Telemetry for an execute
 
 - **WHEN** an execute completes
-- **THEN** its telemetry metadata contains only the source, operation ID, outcome kind and duration
+- **THEN** its telemetry metadata contains only the cassette, source, operation ID, outcome kind and duration

@@ -8,9 +8,9 @@
 `execute` tool definitions as JSON-safe data, each with a name, title,
 description, JSON Schema 2020-12 input and output schemas, and annotations.
 
-- `search` input SHALL accept `query`, `source`, `tags`, `limit` and
-  `include_schemas`.
-- `execute` input SHALL accept `operation_id` and `input`.
+- `search` input SHALL accept `query`, `cassette`, `source`, `tags`, `limit`
+  and `include_schemas`. Each search result SHALL name its cassette.
+- `execute` input SHALL require `cassette`, `operation_id` and `input`.
 - Both schemas MUST reject unknown properties.
 - tama-dex MUST NOT depend on `tama_mcp` or start an MCP server.
 
@@ -33,7 +33,7 @@ description, JSON Schema 2020-12 input and output schemas, and annotations.
 
 #### Scenario: Tool scope without operation scope
 
-- **WHEN** a caller allowed to call the `execute` tool, but without `incus.delete`, executes `incus_instance_delete`
+- **WHEN** a caller allowed to call the `execute` tool, but without `incus.delete`, executes `incus_instance_delete` in the `opsmaru_incus` cassette
 - **THEN** the handler returns a `not_found` error object, and no executor is called
 
 #### Scenario: Index not ready
@@ -43,5 +43,5 @@ description, JSON Schema 2020-12 input and output schemas, and annotations.
 
 #### Scenario: Arguments fail the tool schema
 
-- **WHEN** `handle_execute/4` receives arguments without `operation_id`
+- **WHEN** `handle_execute/4` receives arguments without `cassette` or without `operation_id`
 - **THEN** it returns an `invalid_arguments` error object, without looking up any operation

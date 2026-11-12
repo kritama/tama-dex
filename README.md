@@ -18,19 +18,23 @@ replaces that with:
    in the [Tama operations profile](docs/tama-operations-profile.md)
    (`tama-operations/1`). It uses ordinary OpenAPI plus a few `x-tama-*`
    extensions for scopes, destructive operations and confirmation rules.
-2. **A SQLite index.** The host loads profile documents into an index it owns.
-   Each source replaces its own entries atomically.
+2. **A SQLite index.** The host installs cassettes and profile documents into
+   one index it owns. Each cassette is a namespace, such as `opsmaru_incus` or
+   `macus`, and is replaced atomically on its own.
 3. **`search`.** Full-text search over operation IDs, summaries, descriptions,
-   tags and input fields. It only returns operations the caller's verified
-   scopes allow.
-4. **`execute`.** It checks the caller's scopes, any confirmation rule and the
-   input schema, then hands the call to the executor the host registered for
-   that source, for example `Opsmaru.Incus.Operations.run/3`.
+   tags and input fields, ranked across every cassette. It only returns
+   operations the caller's verified scopes allow, and each result names its
+   cassette.
+4. **`execute`.** The caller names the cassette and operation. It checks the
+   caller's scopes, any confirmation rule and the input schema, then hands the
+   call to the executor the host registered for that source, for example
+   `Opsmaru.Incus.Operations.run/3`.
 
 5. **Cassettes.** A producer's CI can build a portable, prebuilt index file
    (`.tama-cassette`) with `mix tama.dex.cassette`. For example, every
-   opsmaru_incus release publishes one. A host verifies it and imports it at
-   install or start. Prebuilt rows are copied only when the host pins the
+   opsmaru_incus release publishes an `opsmaru_incus` cassette. A host
+   verifies each cassette and imports it at install or start, and can install
+   several side by side. Prebuilt rows are copied only when the host pins the
    cassette's SHA-256. Otherwise the index is rebuilt from the documents
    embedded in the cassette.
 
