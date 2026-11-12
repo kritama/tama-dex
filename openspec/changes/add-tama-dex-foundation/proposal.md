@@ -86,6 +86,8 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
   loading.
 - `operation-search`: scope-filtered full-text search.
 - `operation-execute`: validated, single dispatch to host executors.
+- `executor-contract`: the `Tama.Dex.Executor` behaviour and `Tama.Dex.Call`
+  that host adapters implement.
 - `mcp-tools`: the `search`/`execute` tool definitions and handlers for host
   MCP servers.
 - `cassette`: building, verifying and importing portable prebuilt index files.

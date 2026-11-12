@@ -24,9 +24,10 @@ description, JSON Schema 2020-12 input and output schemas, and annotations.
 - `Tama.Dex.MCP.handle_search/3` SHALL take the index, tool arguments and a
   caller with verified scopes, and return the search response as a JSON-safe
   map.
-- `Tama.Dex.MCP.handle_execute/4` SHALL also take the host's executors, and
-  return either the execute result or an `error` object with a stable kind
-  and the `dispatched` flag.
+- `Tama.Dex.MCP.handle_execute/4` SHALL also take the host's executor
+  registrations, pass the caller as the call's `context`, and return either
+  the execute result or an `error` object with a stable kind and the
+  `dispatched` flag.
 - Handlers SHALL use the caller's verified scopes for every operation. A
   host's MCP tool scope is only an outer gate, never per-operation
   authorization.

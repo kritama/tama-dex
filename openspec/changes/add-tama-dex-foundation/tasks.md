@@ -40,7 +40,9 @@
 ## 5. Execute
 
 - [ ] 5.1 Implement `Tama.Dex.execute/5` and `Tama.Dex.Error` (Decision 6). It requires the cassette and looks only there. Checks run in order: visibility (`not_found`, also for unknown cassettes; `not_ready` for a cassette still on its first import), executor (`no_executor`), input (`invalid_input`), then confirmation (`confirmation_required`). Dispatch exactly once, with no tama-dex deadline, catching raises, exits and throws as `dispatch_failed`. Validate the result against `200`/`default` (`invalid_output`, carrying only the declared `x-tama-identity` values). Set `dispatched` on every error. Never retry, store or log inputs or results.
-- [ ] 5.2 Test every operation-execute scenario with a counting executor, including an operation name present only in another cassette, proving that rejected calls never reach it and that a raising executor is called exactly once. Also check `dispatched` on every error kind, the identity values on `invalid_output`, and that a slow executor is never cut off by tama-dex. Capture logs and telemetry in an execute test to assert that input and result values never appear.
+- [ ] 5.2 Test every operation-execute scenario with a counting executor module, including an operation name present only in another cassette, proving that rejected calls never reach it and that a raising executor is called exactly once. Also check `dispatched` on every error kind, the identity values on `invalid_output`, and that a slow executor is never cut off by tama-dex. Capture logs and telemetry in an execute test to assert that input and result values never appear.
+
+- [ ] 5.3 Implement the `Tama.Dex.Executor` behaviour and the `Tama.Dex.Call` struct (design Decision 11, `executor-contract` spec). Accept `module` or `{module, opts}` registrations, returning `no_executor` for missing entries and for modules without `execute/2`. Pass the verified scopes, cassette, source, operation ID, host context and opts in the call. Test every executor-contract scenario, including a host adapter module that compiles a fake producer without tama_dex.
 
 ## 6. MCP tools
 

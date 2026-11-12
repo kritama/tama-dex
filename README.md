@@ -27,7 +27,8 @@ replaces that with:
    cassette.
 4. **`execute`.** The caller names the cassette and operation. It checks the
    caller's scopes, any confirmation rule and the input schema, then hands the
-   call to the executor the host registered for that source, for example
+   call to the executor the host registered for that source: a host module
+   implementing `Tama.Dex.Executor`, for example an adapter around
    `Opsmaru.Incus.Operations.run/3`.
 
 5. **Cassettes.** A producer's CI can build a portable, prebuilt index file

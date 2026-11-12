@@ -94,11 +94,14 @@ Tama.Dex.cassettes(index)           :: [%{cassette, kind, version, status, mode,
 Tama.Dex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}}
 Tama.Dex.describe(index, cassette, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found}
 Tama.Dex.execute(index, cassette, operation_id, input,
-                 scopes: scopes, executors: %{source => executor}, context: term)
+                 scopes: scopes, executors: %{source => module | {module, opts}}, context: term)
   :: {:ok, %{cassette, operation_id, source, result}} | {:error, Tama.Dex.Error.t()}
 Tama.Dex.MCP.search_tool() / execute_tool()          # definitions as data
 Tama.Dex.MCP.handle_search(index, args, caller)      # JSON-safe map
 Tama.Dex.MCP.handle_execute(index, args, caller, executors)
+
+@callback Tama.Dex.Executor.execute(Tama.Dex.Call.t(), input :: map) :: {:ok, map} | {:error, map}
+%Tama.Dex.Call{cassette, source, operation_id, scopes, context, opts}
 ```
 
 
@@ -274,10 +277,10 @@ first error:
    `not_found`, so execute can't be used to discover hidden operations or
    cassettes. A cassette whose first import is still running returns
    `not_ready`.
-2. **Executor:** `executors[source]` must exist, otherwise `no_executor`. An
-   executor is a 3-arity function or `{module, function, extra_args}`. It is
-   called as `executor.(operation_id, input, context)` and returns
-   `{:ok, map} | {:error, map}`.
+2. **Executor:** `executors[source]` must be a module implementing
+   `Tama.Dex.Executor`, or `{module, opts}`, otherwise `no_executor` (Decision
+   11). It is called as `module.execute(call, input)` with a
+   `%Tama.Dex.Call{}` and returns `{:ok, map} | {:error, map}`.
 3. **Input:** must be a map at most 1 MiB once encoded. It is validated
    against the compiled input schema, and failures return `invalid_input` with
    bounded JSON-pointer issues.
@@ -429,6 +432,33 @@ readiness that may lag runtime readiness.
 - **Performance target:** rebuilding a 1024-operation document set completes
   within 2 s on a GitHub-hosted runner, and copy mode faster. This is measured
   as release evidence (task 8.4), not asserted in unit tests.
+
+### 11. Executor contract
+
+On 2026-11-12 the user chose an Elixir behaviour for the calling side.
+
+- **`Tama.Dex.Executor`** has one callback, `execute(call, input)`. The
+  `%Tama.Dex.Call{}` carries the cassette, source, operation ID, the verified
+  scopes tama-dex checked, the host `context` (the caller, for the MCP
+  handler) and the registration `opts`. Passing the checked scopes in the
+  call means the executor re-checks exactly what tama-dex saw, and the host
+  never supplies scopes twice.
+- **Registration:** `%{source => module | {module, opts}}`. Anything else, or
+  a module without `execute/2`, is `no_executor` before dispatch.
+- **Who implements it:** host adapter modules. A producer's run function
+  needs host-only arguments (Macus: `host: Macus.MCP.IncusHost`, the verified
+  caller), so the adapter is host glue. Producers keep no compile-time or
+  runtime dependency on tama_dex: they publish documents as data and their
+  own run functions.
+- **Indexing stays a data contract.** The `tama-operations/1` document is the
+  ingestion standard. A behaviour for producing documents would add nothing
+  the validator doesn't check, and would make producers compile against
+  tama_dex.
+- **Not a protocol:** protocols dispatch on a value's type. Executors are
+  chosen by source ID, so a behaviour plus a registry map fits.
+- **Rejected:** keeping bare 3-arity functions and MFAs. They give no
+  compile-time `@impl` check, no Dialyzer contract and no single documented
+  call shape.
 
 ## Risks
 

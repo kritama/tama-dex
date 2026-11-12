@@ -25,7 +25,8 @@ server.
   host's MCP server wraps them.
 - tama-dex never performs an operation itself. `execute` validates the call
   and then hands it to an executor that the host registers for the operation's
-  source. Never retry or replay a dispatched call, because the operation may
+  source: a host adapter module implementing `Tama.Dex.Executor`. Producers
+  never need tama_dex to be executable; keep indexing a data contract. Never retry or replay a dispatched call, because the operation may
   already have been accepted.
 - Search visibility is not authorization. `execute` re-checks the caller's
   verified scopes against the operation's scopes on every call.

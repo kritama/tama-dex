@@ -44,10 +44,9 @@ No executor SHALL be called unless every check passes.
 
 ### Requirement: Single dispatch to host executors
 
-After validation, execute SHALL call the source's executor exactly once, as
-`executor.(operation_id, input, context)`. An executor is a 3-arity function
-or `{module, function, extra_args}`, returning `{:ok, map}` or
-`{:error, map}`.
+After validation, execute SHALL call the source's executor exactly once,
+through the `Tama.Dex.Executor` behaviour defined by the `executor-contract`
+capability, as `module.execute(call, input)`.
 
 - tama-dex MUST NOT impose a deadline of its own around the executor.
   Operation duration is limited only by the executor and host.
