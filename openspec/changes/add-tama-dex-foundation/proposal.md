@@ -95,8 +95,9 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
 ## Impact
 
 - New Hex package `tama_dex`, under Apache-2.0.
-- `opsmaru_incus` needs a pure `Operations.openapi/0` that emits a
-  `tama-operations/1` document. That is a separate change in that repository,
+- `opsmaru_incus` needs pure `Operations.Composite.openapi/0` and
+  `Operations.Native.openapi/0` functions that emit `tama-operations/1`
+  documents. That is a separate change in that repository,
   and it adds no dependency on tama-dex.
 - Macus imports the bundled `opsmaru_incus` cassette and loads its own runtime
   document into a local `macus` cassette at startup, registers its executors, and backs its `search`/`execute` MCP tools

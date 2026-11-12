@@ -65,9 +65,18 @@ The library has no `Application` module.
   `describe` and lookups. A write connection is used only by a linked writer
   process that runs loads and imports, one at a time.
   - In WAL mode, readers keep seeing the last committed state while a write is
-    in progress, so a background import never blocks searches.
-  - For `:memory`, both connections use one shared-cache in-memory database,
-    so the writer's commits are visible to reads.
+    in progress, so a background import never blocks searches in a
+    file-backed index.
+  - For `:memory`, both connections open one in-memory database through the
+    `memdb` VFS, under a name unique to the index process
+    (`file:/tama-dex-<unique>?vfs=memdb`), so the writer's commits are
+    visible to reads. `memdb` has no WAL, so a read issued during a write
+    waits for the commit, under the read connection's busy timeout, instead
+    of seeing the previous state. It still never sees a mixture. `:memory` is
+    meant for tests and short-lived hosts.
+  - Rejected for `:memory`: a shared-cache database. Its table locks fail
+    reads with `SQLITE_LOCKED` during a write, and a busy timeout does not
+    apply to them.
   - Options: `path:` (required; a file path or `:memory`), `name:` (optional),
     `limits:` (optional, never above the profile limits).
   - The host decides where the database lives (Macus:
@@ -93,8 +102,8 @@ Tama.Dex.import(index, path, sha256: pin, as: name, timeout: ms, async: boolean)
 Tama.Dex.Index.status(index)        :: :ready | :empty | {:importing, progress} | {:failed, reason}
 Tama.Dex.unload(index, cassette)    :: :ok
 Tama.Dex.cassettes(index)           :: [%{cassette, kind, version, status, mode, digest, loaded_at, sources: [...]}]
-Tama.Dex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}}
-Tama.Dex.describe(index, cassette, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found}
+Tama.Dex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}} | {:error, :not_ready}
+Tama.Dex.describe(index, cassette, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found | :not_ready}
 Tama.Dex.execute(index, cassette, operation_id, input,
                  scopes: scopes, executors: %{source => module | {module, opts}}, context: term)
   :: {:ok, %{cassette, operation_id, source, result}} | {:error, Tama.Dex.Error.t()}
@@ -283,30 +292,38 @@ first error:
    `Tama.Dex.Executor`, or `{module, opts}`, otherwise `no_executor` (Decision
    11). It is called as `module.execute(call, input)` with a
    `%Tama.Dex.Call{}` and returns `{:ok, map} | {:error, map}`.
-3. **Input:** must be a map at most 1 MiB once encoded. It is validated
-   against the compiled input schema, and failures return `invalid_input` with
-   bounded JSON-pointer issues.
+3. **Input shape:** must be a map at most 1 MiB once encoded, otherwise
+   `invalid_input`.
 4. **Confirmation:** when `x-tama-confirmation` is set, a missing or empty
    field returns `confirmation_required`, with the field and description.
-5. **Dispatch:** called exactly once, with no deadline added by tama-dex.
+   This runs before schema validation: the profile requires the confirmation
+   field to be a required property, so validating the schema first would
+   report a missing confirmation as `invalid_input`.
+5. **Input schema:** the input is validated against the compiled input
+   schema, and failures return `invalid_input` with bounded JSON-pointer
+   issues.
+6. **Dispatch:** called exactly once, with no deadline added by tama-dex.
    Macus runtime start can legitimately run up to 600 s by default, with a
    caller budget of 1–3600 s. Timeouts belong to the executor and host, which
    return progress or a `running` status rather than being cut off locally.
    Raises, exits and throws are caught and returned as `dispatch_failed`, with
    the kind and nothing else. tama-dex never retries.
-6. **Result check:** `{:ok, result}` must match the `200` schema, and
+7. **Result check:** `{:ok, result}` must match the `200` schema, and
    `{:error, error}` must match `default` when declared. A mismatch returns
    `invalid_output`, without the result's content. It does carry the values of
    the operation's `x-tama-identity` properties (top-level strings, integers
    or booleans, each at most 256 bytes) when the raw result has them, so a
    caller can reconcile an operation that may already have taken effect.
-7. **Return:** `{:ok, %{cassette, operation_id, source, result}}`, or the executor's
+8. **Return:** `{:ok, %{cassette, operation_id, source, result}}`, or the executor's
    `{:error, error}` passed through after it validates.
 
 `Tama.Dex.Error` has `kind`, `dispatched` (boolean), a bounded `message` and
-optional bounded `details`.
+optional bounded `details`. Only `execute/5` returns it. `search/3` and
+`describe/4` dispatch nothing, so they return bare `{:error, :not_found}` or
+`{:error, :not_ready}`. The MCP handlers encode both forms as `error` objects
+with a `kind` and `dispatched`.
 
-- **`dispatched: false`:** steps 1–4 (`not_found`, `not_ready`,
+- **`dispatched: false`:** steps 1–5 (`not_found`, `not_ready`,
   `no_executor`, `invalid_input`, `confirmation_required`). The operation did
   not run.
 - **`dispatched: true`:** `dispatch_failed` and `invalid_output`. The
@@ -330,14 +347,22 @@ optional bounded `details`.
 - **Hosts:** with TamaMCP, a host declares two tool modules using
   `raw_input_schema` and `raw_output_schema` from these definitions, and calls
   the handlers from `call/2`. Each tool's own scope is only an outer gate.
-- No `tama_mcp` dependency in v1. An optional adapter can come later.
+- No `tama_mcp` dependency in v1, not even for tests. A test checks schema
+  identity with a host-style module instead. An optional adapter can come
+  later.
 
 ### 8. Telemetry
 
-- **Events:** `[:tama_dex, :load | :search | :execute, :start | :stop |
-  :exception]` and `[:tama_dex, :index, :recreated]`.
-- **Metadata:** limited to the cassette, source, operation ID, counts, result
-  kind and durations. Never query text beyond its length, inputs, results or schemas.
+- **Events:**
+  - `[:tama_dex, :load | :import | :search | :execute, :start | :stop |
+    :exception]`;
+  - `[:tama_dex, :index, :recreated]`, when a database with an unknown schema
+    version is recreated;
+  - `[:tama_dex, :index, :status]`, on each change of
+    `Tama.Dex.Index.status/1` (Decision 10).
+- **Metadata:** limited to the cassette, source, operation ID, import mode,
+  `changed`, status, counts, result kind and durations. Never query text
+  beyond its length, inputs, results, schemas or file paths.
 
 ### 9. Cassettes
 
@@ -399,6 +424,10 @@ imports. The user's target flow:
   - The result reports the cassette, version, mode, `changed` and its
     sources. An unpinned cassette therefore can't inject index rows that
     differ from its verified documents.
+- **Fixtures:** a cassette is a SQLite file, so none is committed. Tests
+  build cassettes in temporary directories. Producer evidence uses checked-in
+  JSON documents, and a release cassette is read from `.integration/` by an
+  opt-in integration test (task 9.1).
 - **Several cassettes:** a host imports each cassette separately. They
   coexist in the one index, and searches rank across all of them.
 - **Hosts** choose where cassettes come from, such as an asset bundled at
@@ -419,18 +448,20 @@ readiness that may lag runtime readiness.
   once the cassette has been checked for size and file SHA-256, and imports in
   the index process.
   - `Tama.Dex.Index.status/1` reports `:empty`, `{:importing, %{cassette,
-    done: n, total: m}}`, `:ready` or `{:failed, reason}`, and emits telemetry
-    on each change.
+    done: n, total: m}}`, `:ready` or `{:failed, reason}`, and emits
+    `[:tama_dex, :index, :status]` on each change.
   - `Tama.Dex.cassettes/1` reports each cassette's own status, so a host that
     imports several cassettes can tell when all of them are installed. `:ready`
     from `status/1` means at least one cassette is committed, not all of them.
   - A host can await an import's result or poll.
-- **Not-ready behaviour:** `search/3`, `describe/4` and `execute/5` return
-  `{:error, :not_ready}` (a `not_ready` error with `dispatched: false`) only
-  while the index has no committed cassette and an import or load is running.
-  `describe/4` and `execute/5` also return it for a cassette whose first
-  import is still running. A cassette being re-imported keeps serving its
-  previous entries until the commit.
+- **Not-ready behaviour:** `search/3` and `describe/4` return
+  `{:error, :not_ready}`, and `execute/5` returns a `not_ready` error with
+  `dispatched: false`, only while the index has no committed cassette and an
+  import or load is running. `describe/4` and `execute/5` also do so for a
+  cassette whose first import is still running. The check reads the index's
+  in-memory status, so it never waits on SQLite. In a file-backed index, a
+  cassette being re-imported keeps serving its previous entries until the
+  commit. An in-memory index may make those reads wait (Decision 1).
 - **Performance target:** rebuilding a 1024-operation document set completes
   within 2 s on a GitHub-hosted runner, and copy mode faster. This is measured
   as release evidence (task 8.4), not asserted in unit tests.

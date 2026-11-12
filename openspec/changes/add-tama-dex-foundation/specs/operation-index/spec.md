@@ -93,12 +93,19 @@ install it as one source of the local cassette named by its required
 - `Tama.Dex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
   or a failure. `:ready` SHALL mean at least one cassette is committed.
 - `Tama.Dex.cassettes/1` SHALL report each cassette's own status.
-- While no cassette has been committed and indexing is in progress, `search`,
-  `describe` and `execute` SHALL return `not_ready` with `dispatched: false`,
-  without blocking. `describe` and `execute` SHALL also return it for a
-  cassette whose first import is still running.
-- A cassette being re-imported, or a source being reloaded, SHALL keep serving
-  its previous entries until its new entries commit.
+- While no cassette has been committed and indexing is in progress, `search`
+  and `describe` SHALL return `{:error, :not_ready}`, and `execute` SHALL
+  return a `not_ready` error with `dispatched: false`, without blocking.
+  `describe` and `execute` SHALL also do so for a cassette whose first import
+  is still running.
+- Each change of `Tama.Dex.Index.status/1` SHALL emit
+  `[:tama_dex, :index, :status]` telemetry.
+- In a file-backed index, a cassette being re-imported, or a source being
+  reloaded, SHALL keep serving its previous entries until its new entries
+  commit.
+- In an in-memory index, a read issued during a write MAY wait for that write
+  to commit instead of reading the previous entries. It MUST NOT observe a
+  mixture of old and new entries.
 
 #### Scenario: Deadline during rebuild
 
@@ -117,8 +124,13 @@ install it as one source of the local cassette named by its required
 
 #### Scenario: Reload keeps serving
 
-- **WHEN** a cassette is re-imported in the background while callers search it
+- **WHEN** a cassette in a file-backed index is re-imported in the background while callers search it
 - **THEN** they keep receiving the previous entries until the new ones commit
+
+#### Scenario: In-memory reload
+
+- **WHEN** a cassette in a `:memory` index is re-imported while callers search it
+- **THEN** each search returns either the previous entries or the new ones, never a mixture, and may wait for the commit
 
 ### Requirement: Derived, versioned storage
 

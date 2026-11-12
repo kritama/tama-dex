@@ -13,12 +13,17 @@
    for a cassette whose first import is still running;
 2. an executor is registered for the operation's source (`no_executor`
    otherwise);
-3. the input is a map of at most 1 MiB once encoded that validates against
-   the compiled input schema (`invalid_input`, with bounded JSON-pointer
-   issues, otherwise);
+3. the input is a map of at most 1 MiB once encoded (`invalid_input`
+   otherwise);
 4. the confirmation field, when the operation declares one, is present and
    non-empty (`confirmation_required`, with the field and description,
-   otherwise).
+   otherwise);
+5. the input validates against the compiled input schema (`invalid_input`,
+   with bounded JSON-pointer issues, otherwise).
+
+The confirmation check runs before schema validation. The profile requires
+the confirmation field to be a required property, so validating the schema
+first would report a missing confirmation as `invalid_input`.
 
 No executor SHALL be called unless every check passes.
 
@@ -41,6 +46,11 @@ No executor SHALL be called unless every check passes.
 
 - **WHEN** `incus_image_delete` is executed without `confirm`
 - **THEN** execute returns `confirmation_required`, with field `confirm` and description `the full fingerprint`
+
+#### Scenario: Confirmation checked before the input schema
+
+- **WHEN** `incus_image_delete` is executed with `confirm` omitted and a `fingerprint` of the wrong type
+- **THEN** execute returns `confirmation_required`, not `invalid_input`, and no executor is called
 
 ### Requirement: Single dispatch to host executors
 

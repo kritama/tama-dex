@@ -66,6 +66,9 @@ name.
 - Importing the same content digest again SHALL report `changed: false` and
   write nothing.
 - It SHALL report the cassette, version, mode, `changed` and sources.
+- It SHALL emit `[:tama_dex, :import, :start | :stop | :exception]`
+  telemetry, with metadata limited to the cassette, version, mode,
+  `changed`, counts and duration, never the file path or document content.
 - A host MAY import several cassettes into one index.
 - It SHALL honour the `timeout` and `async` options of the startup-bounded
   indexing requirement.
