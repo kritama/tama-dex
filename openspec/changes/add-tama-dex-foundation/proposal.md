@@ -44,8 +44,11 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
     caller can't see is reported as not found.
   - Require the confirmation field and validate the input against the
     compiled schema (JSON Schema 2020-12).
-  - Dispatch exactly once to the host's executor for that source, then check
-    the result against the declared response schema.
+  - Dispatch exactly once to the host's executor for that source, with no
+    deadline added by tama-dex, then check the result against the declared
+    response schema.
+  - Errors say whether the operation was dispatched. An invalid result keeps
+    the operation's declared identity values for reconciliation.
   - Nothing is retried, stored or logged.
 - **MCP tool definitions:** the `search` and `execute` tool definitions
   (name, title, description, input and output schemas) as data, with handler

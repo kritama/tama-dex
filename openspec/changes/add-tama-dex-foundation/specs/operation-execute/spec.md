@@ -42,6 +42,8 @@ After validation, execute SHALL call the source's executor exactly once, as
 or `{module, function, extra_args}`, returning `{:ok, map}` or
 `{:error, map}`.
 
+- tama-dex MUST NOT impose a deadline of its own around the executor.
+  Operation duration is limited only by the executor and host.
 - Raises, exits and throws SHALL be caught and reported as `dispatch_failed`,
   with only their kind.
 - tama-dex MUST NOT retry, replay or queue a dispatched call, because the
@@ -49,6 +51,11 @@ or `{module, function, extra_args}`, returning `{:ok, map}` or
 - tama-dex MUST NOT perform the operation itself or add authorization beyond
   the scope check. Confirmation values, policy and timeouts belong to the
   executor.
+
+#### Scenario: Long-running executor
+
+- **WHEN** an executor for a runtime start takes 900 seconds within its own caller-supplied budget
+- **THEN** execute waits for it and returns its result, without a tama-dex timeout
 
 #### Scenario: Executor raises
 
@@ -65,13 +72,30 @@ or `{module, function, extra_args}`, returning `{:ok, map}` or
 - A `{:ok, result}` SHALL match the operation's `200` schema.
 - An `{:error, error}` SHALL match its `default` schema when one is declared.
 - A mismatch SHALL return `invalid_output`, without any of the result's
-  content.
+  content except the values of the operation's `x-tama-identity` properties
+  that are top-level strings, integers or booleans of at most 256 bytes.
 - A valid success SHALL return `{:ok, %{operation_id, source, result}}`.
 
 #### Scenario: Producer bug
 
 - **WHEN** an executor returns a success map that violates the `200` schema
-- **THEN** execute returns `invalid_output`, and the map is neither returned nor logged
+- **THEN** execute returns `invalid_output` with `dispatched: true` and the declared identity values (for example `operation_id`), and the rest of the map is neither returned nor logged
+
+### Requirement: Dispatch status in errors
+
+Every error tama-dex produces SHALL carry `dispatched`.
+
+- `not_found`, `no_executor`, `invalid_input` and `confirmation_required`
+  SHALL carry `dispatched: false`.
+- `dispatch_failed` and `invalid_output` SHALL carry `dispatched: true`, with
+  a message stating that the operation may have taken effect and must be
+  reconciled rather than retried.
+- An executor's own valid `{:error, error}` SHALL be passed through unchanged.
+
+#### Scenario: Caller distinguishes run from not run
+
+- **WHEN** one call fails `invalid_input` and another fails `invalid_output`
+- **THEN** the first carries `dispatched: false`, and the second `dispatched: true` with the reconcile message
 
 ### Requirement: No retention of inputs or results
 

@@ -9,7 +9,7 @@
 ## 2. Profile
 
 - [ ] 2.1 Write `priv/profile/tama-operations-1.schema.json` (JSON Schema 2020-12) for the document shape in `docs/tama-operations-profile.md`, and keep the two in agreement.
-- [ ] 2.2 Implement the pure `TamaDex.Profile.validate/1` (design Decision 2). It runs JSON Schema shape validation, then the semantic rules: path suffix equals `operationId`, IDs unique, confirmation field is a required string property, `$ref`s internal and resolvable (bundled as `$defs`), every schema compiles with jsonschex, opaque extensions within 16 KiB, size and count limits, and unknown `x-tama-*` keys rejected. It returns all issues with pointer, code and a bounded message. It normalizes to `TamaDex.Document` and `TamaDex.Operation` structs and computes the canonical-JSON SHA-256 digest.
+- [ ] 2.2 Implement the pure `TamaDex.Profile.validate/1` (design Decision 2). It runs JSON Schema shape validation, then the semantic rules: path suffix equals `operationId`, IDs unique, confirmation field is a required string property, `$ref`s internal and resolvable (bundled as `$defs`), every schema compiles with jsonschex, opaque extensions within 16 KiB, `x-tama-identity` names declared by the `200`/`default` schema, size and count limits, and unknown `x-tama-*` keys rejected. It returns all issues with pointer, code and a bounded message. It normalizes to `TamaDex.Document` and `TamaDex.Operation` structs and computes the canonical-JSON SHA-256 digest.
 - [ ] 2.3 Add fixtures under `test/fixtures/profile/`: one valid document shaped like `opsmaru_incus` (read, write, exec and destructive-with-confirmation operations, a `default` error schema and `x-opsmaru-requires`) and one invalid document per rule in the operation-profile spec. Test every scenario, including that several defects are reported together.
 
 ## 3. Index
@@ -39,8 +39,8 @@
 
 ## 5. Execute
 
-- [ ] 5.1 Implement `TamaDex.execute/4` and `TamaDex.Error` (Decision 6). Checks run in order: visibility (`not_found`), executor (`no_executor`), input (`invalid_input`), then confirmation (`confirmation_required`). Dispatch exactly once, catching raises, exits and throws as `dispatch_failed`. Validate the result against `200`/`default` (`invalid_output`). Never retry, store or log inputs or results.
-- [ ] 5.2 Test every operation-execute scenario with a counting executor, proving that rejected calls never reach it and that a raising executor is called exactly once. Capture logs and telemetry in an execute test to assert that input and result values never appear.
+- [ ] 5.1 Implement `TamaDex.execute/4` and `TamaDex.Error` (Decision 6). Checks run in order: visibility (`not_found`), executor (`no_executor`), input (`invalid_input`), then confirmation (`confirmation_required`). Dispatch exactly once, with no tama-dex deadline, catching raises, exits and throws as `dispatch_failed`. Validate the result against `200`/`default` (`invalid_output`, carrying only the declared `x-tama-identity` values). Set `dispatched` on every error. Never retry, store or log inputs or results.
+- [ ] 5.2 Test every operation-execute scenario with a counting executor, proving that rejected calls never reach it and that a raising executor is called exactly once. Also check `dispatched` on every error kind, the identity values on `invalid_output`, and that a slow executor is never cut off by tama-dex. Capture logs and telemetry in an execute test to assert that input and result values never appear.
 
 ## 6. MCP tools
 

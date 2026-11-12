@@ -111,6 +111,8 @@ The profile itself is defined in `docs/tama-operations-profile.md`.
   - `confirmation.field` / `value` → `x-tama-confirmation.field` /
     `description`.
   - `bounds` → `x-tama-bounds`, `requires` → `x-opsmaru-requires`.
+  - `x-tama-identity: ["operation_id", "status"]` for operations whose results
+    carry them.
   - The success branch of `output_schema` → `200`, and the error branch →
     `default`.
 - **Validation:** `TamaDex.Profile.validate/1` is pure. It validates the
@@ -212,17 +214,29 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
    bounded JSON-pointer issues.
 4. **Confirmation:** when `x-tama-confirmation` is set, a missing or empty
    field returns `confirmation_required`, with the field and description.
-5. **Dispatch:** called exactly once. Raises, exits and throws are caught and
-   returned as `dispatch_failed`, with the kind and nothing else. tama-dex
-   never retries.
+5. **Dispatch:** called exactly once, with no deadline added by tama-dex.
+   Macus runtime start can legitimately run up to 600 s by default, with a
+   caller budget of 1–3600 s. Timeouts belong to the executor and host, which
+   return progress or a `running` status rather than being cut off locally.
+   Raises, exits and throws are caught and returned as `dispatch_failed`, with
+   the kind and nothing else. tama-dex never retries.
 6. **Result check:** `{:ok, result}` must match the `200` schema, and
    `{:error, error}` must match `default` when declared. A mismatch returns
-   `invalid_output`, without the result's content.
+   `invalid_output`, without the result's content. It does carry the values of
+   the operation's `x-tama-identity` properties (top-level strings, integers
+   or booleans, each at most 256 bytes) when the raw result has them, so a
+   caller can reconcile an operation that may already have taken effect.
 7. **Return:** `{:ok, %{operation_id, source, result}}`, or the executor's
    `{:error, error}` passed through after it validates.
 
-`TamaDex.Error` has `kind`, a bounded `message` and an optional bounded
-`details`. Inputs and results are never logged, stored or sent in telemetry.
+`TamaDex.Error` has `kind`, `dispatched` (boolean), a bounded `message` and
+optional bounded `details`.
+
+- **`dispatched: false`:** steps 1–4 (`not_found`, `no_executor`,
+  `invalid_input`, `confirmation_required`). The operation did not run.
+- **`dispatched: true`:** `dispatch_failed` and `invalid_output`. The
+  operation may have taken effect. The message says so, and callers must
+  reconcile, never retry blindly. Inputs and results are never logged, stored or sent in telemetry.
 
 ### 7. MCP tool definitions
 

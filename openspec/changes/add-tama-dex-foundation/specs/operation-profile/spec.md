@@ -48,7 +48,9 @@ Each operation SHALL be the single `post` operation of path
   property of the input schema and give a description of at most 256
   characters.
 - `x-tama-bounds`, when present, MUST map snake_case keys to non-negative
-  integers.
+  integers. They are informational and never enforced.
+- `x-tama-identity`, when present, MUST list at most 8 unique top-level
+  property names declared by the `200` or `default` schema.
 - Unknown `x-tama-*` keys MUST be rejected. Other `x-<prefix>-*` extensions
   SHALL be kept as opaque metadata of at most 16 KiB per operation.
 

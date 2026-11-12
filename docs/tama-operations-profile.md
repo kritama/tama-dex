@@ -50,6 +50,7 @@ naming conventions only. TamaDex never makes HTTP calls to them.
 | `x-tama-destructive` | MUST be a boolean. |
 | `x-tama-confirmation` | MAY be `{"field": <name>, "description": <text>}`. `field` MUST name a required top-level string property of the input schema. `description` (at most 256 characters) tells the caller what value to send, for example "the full fingerprint". |
 | `x-tama-bounds` | MAY be an object of non-negative integers keyed by `^[a-z][a-z0-9_]{0,63}$`, for example `max_items`. It is informational: returned in results, never enforced by TamaDex. |
+| `x-tama-identity` | MAY list up to 8 unique top-level property names declared by the `"200"` or `"default"` schema, for example `operation_id` or `status`. When a dispatched result fails validation, TamaDex copies those properties' string, integer or boolean values (each at most 256 bytes) into its `invalid_output` error, so callers can reconcile a call that may already have taken effect. |
 | Other `x-<prefix>-*` | Kept as opaque metadata (at most 16 KiB per operation) and returned with full operation detail, for example `x-opsmaru-requires`. |
 
 Each request or response schema MUST be at most 256 KiB once serialized.
@@ -59,6 +60,14 @@ Each request or response schema MUST be at most 256 KiB once serialized.
 - TamaDex validates `requestBody` input before dispatch, and the executor's
   result after it. An `{:ok, result}` MUST match the `"200"` schema. An
   `{:error, error}` MUST match `"default"` when one is declared.
+- TamaDex adds no deadline of its own around the executor. Long-running
+  operations (for example a runtime start bounded by `remaining_seconds`) are
+  limited only by the executor and host. `x-tama-bounds` documents those
+  limits but is not enforced.
+- Every TamaDex error says whether the executor was called. Errors before
+  dispatch carry `dispatched: false`, meaning the operation did not run.
+  `dispatch_failed` and `invalid_output` carry `dispatched: true`, meaning the
+  operation may have taken effect and MUST NOT be retried blindly.
 - When `x-tama-confirmation` is present, TamaDex rejects a call whose
   confirmation field is missing or empty. The producer's executor still checks
   the value itself.
@@ -84,6 +93,7 @@ Each request or response schema MUST be at most 256 KiB once serialized.
         "x-tama-destructive": true,
         "x-tama-confirmation": {"field": "confirm", "description": "the full fingerprint"},
         "x-tama-bounds": {"max_wait_seconds": 60, "max_output_bytes": 262144},
+        "x-tama-identity": ["operation_id", "status"],
         "x-opsmaru-requires": ["DeleteImage", "GetOperationWait"],
         "requestBody": {
           "required": true,
