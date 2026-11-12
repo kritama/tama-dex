@@ -337,9 +337,14 @@ optional bounded `details`.
 ### 9. Cassettes
 
 A cassette is a prebuilt index that a producer's CI publishes and a host
-imports. The user's target flow: an opsmaru_incus release runs indexing and
-publishes a downloadable cassette, which `macus install` or `macus start`
-imports.
+imports. The user's target flow:
+1. An opsmaru_incus release runs indexing in CI and attaches the cassette, its
+   SHA-256 and a provenance attestation to the GitHub Release.
+2. Macus's own release build downloads the cassette for its locked
+   opsmaru_incus version, verifies it, and bundles the file with its SHA-256
+   as the pin.
+3. At `macus start`, Macus imports the bundled local file. Nothing is
+   downloaded at startup, by Macus or by tama-dex.
 
 - **Format `tama-cassette/1`:** one SQLite file holding one cassette: the
   version 1 index tables, whose `cassette` column holds only its name, plus:
