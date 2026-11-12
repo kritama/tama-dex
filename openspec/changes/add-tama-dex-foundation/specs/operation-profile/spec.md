@@ -16,13 +16,13 @@ A document MUST have:
 - only operation paths, and no `webhooks`.
 
 The profile document, the published JSON Schema in
-`priv/profile/tama-operations-1.schema.json` and `TamaDex.Profile.validate/1`
+`priv/profile/tama-operations-1.schema.json` and `Tama.Dex.Profile.validate/1`
 SHALL agree.
 
 #### Scenario: Valid producer document
 
 - **WHEN** a producer passes a document that follows every profile rule
-- **THEN** `TamaDex.Profile.validate/1` returns `{:ok, document}`, holding the source ID, version, digest and normalized operations
+- **THEN** `Tama.Dex.Profile.validate/1` returns `{:ok, document}`, holding the source ID, version, digest and normalized operations
 
 #### Scenario: Unknown profile version
 
@@ -86,7 +86,7 @@ before the document is accepted.
 
 ### Requirement: Validation reporting and limits
 
-`TamaDex.Profile.validate/1` SHALL be pure: no process, file or network access.
+`Tama.Dex.Profile.validate/1` SHALL be pure: no process, file or network access.
 It SHALL report every issue it finds, each with a JSON pointer, a stable code
 and a message of at most 256 bytes.
 

@@ -1,10 +1,10 @@
 # Tama operations profile (`tama-operations/1`)
 
 This profile is the standard way for a library or service to publish its
-operations so TamaDex can index, search and execute them. A profile document
+operations so tama-dex can index, search and execute them. A profile document
 is an ordinary OpenAPI 3.1 document with a few constraints and `x-tama-*`
-extensions. Producers build it as plain data. They don't depend on TamaDex at
-runtime, but they may use `TamaDex.Profile.validate/1` as a test-only
+extensions. Producers build it as plain data. They don't depend on tama-dex at
+runtime, but they may use `Tama.Dex.Profile.validate/1` as a test-only
 dependency to check conformance.
 
 Known producers are `opsmaru_incus` (`Opsmaru.Incus.Operations.openapi/0`,
@@ -35,7 +35,7 @@ operations.
 
 Each operation is one path item, `/operations/{operationId}` with the literal
 operation ID, holding exactly one `post` operation. The path and method are
-naming conventions only. TamaDex never makes HTTP calls to them.
+naming conventions only. tama-dex never makes HTTP calls to them.
 
 | Field | Rule |
 |---|---|
@@ -49,26 +49,26 @@ naming conventions only. TamaDex never makes HTTP calls to them.
 | `x-tama-scopes` | MUST be a non-empty array of unique scope tokens matching `^[A-Za-z0-9._:-]{1,128}$`. A caller needs **every** listed scope. |
 | `x-tama-destructive` | MUST be a boolean. |
 | `x-tama-confirmation` | MAY be `{"field": <name>, "description": <text>}`. `field` MUST name a required top-level string property of the input schema. `description` (at most 256 characters) tells the caller what value to send, for example "the full fingerprint". |
-| `x-tama-bounds` | MAY be an object of non-negative integers keyed by `^[a-z][a-z0-9_]{0,63}$`, for example `max_items`. It is informational: returned in results, never enforced by TamaDex. |
-| `x-tama-identity` | MAY list up to 8 unique top-level property names declared by the `"200"` or `"default"` schema, for example `operation_id` or `status`. When a dispatched result fails validation, TamaDex copies those properties' string, integer or boolean values (each at most 256 bytes) into its `invalid_output` error, so callers can reconcile a call that may already have taken effect. |
+| `x-tama-bounds` | MAY be an object of non-negative integers keyed by `^[a-z][a-z0-9_]{0,63}$`, for example `max_items`. It is informational: returned in results, never enforced by Tama.Dex. |
+| `x-tama-identity` | MAY list up to 8 unique top-level property names declared by the `"200"` or `"default"` schema, for example `operation_id` or `status`. When a dispatched result fails validation, tama-dex copies those properties' string, integer or boolean values (each at most 256 bytes) into its `invalid_output` error, so callers can reconcile a call that may already have taken effect. |
 | Other `x-<prefix>-*` | Kept as opaque metadata (at most 16 KiB per operation) and returned with full operation detail, for example `x-opsmaru-requires`. |
 
 Each request or response schema MUST be at most 256 KiB once serialized.
 
 ## Execution semantics
 
-- TamaDex validates `requestBody` input before dispatch, and the executor's
+- tama-dex validates `requestBody` input before dispatch, and the executor's
   result after it. An `{:ok, result}` MUST match the `"200"` schema. An
   `{:error, error}` MUST match `"default"` when one is declared.
-- TamaDex adds no deadline of its own around the executor. Long-running
+- tama-dex adds no deadline of its own around the executor. Long-running
   operations (for example a runtime start bounded by `remaining_seconds`) are
   limited only by the executor and host. `x-tama-bounds` documents those
   limits but is not enforced.
-- Every TamaDex error says whether the executor was called. Errors before
+- Every tama-dex error says whether the executor was called. Errors before
   dispatch carry `dispatched: false`, meaning the operation did not run.
   `dispatch_failed` and `invalid_output` carry `dispatched: true`, meaning the
   operation may have taken effect and MUST NOT be retried blindly.
-- When `x-tama-confirmation` is present, TamaDex rejects a call whose
+- When `x-tama-confirmation` is present, tama-dex rejects a call whose
   confirmation field is missing or empty. The producer's executor still checks
   the value itself.
 - Scopes are checked against the caller's verified scopes on every `execute`.
@@ -114,4 +114,4 @@ Each request or response schema MUST be at most 256 KiB once serialized.
 Unknown `x-tama-*` keys, at document or operation level, are rejected. A new
 `x-tama-*` field, a change that would reject a previously valid document, or a
 change in the meaning of a field each need a new profile version
-(`tama-operations/2`). TamaDex rejects profile versions it doesn't know.
+(`tama-operations/2`). tama-dex rejects profile versions it doesn't know.

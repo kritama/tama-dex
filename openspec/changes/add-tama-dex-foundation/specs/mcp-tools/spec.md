@@ -4,7 +4,7 @@
 
 ### Requirement: Tool definitions as data
 
-`TamaDex.MCP.search_tool/0` and `execute_tool/0` SHALL return the `search` and
+`Tama.Dex.MCP.search_tool/0` and `execute_tool/0` SHALL return the `search` and
 `execute` tool definitions as JSON-safe data, each with a name, title,
 description, JSON Schema 2020-12 input and output schemas, and annotations.
 
@@ -21,10 +21,10 @@ description, JSON Schema 2020-12 input and output schemas, and annotations.
 
 ### Requirement: Tool handlers
 
-- `TamaDex.MCP.handle_search/3` SHALL take the index, tool arguments and a
+- `Tama.Dex.MCP.handle_search/3` SHALL take the index, tool arguments and a
   caller with verified scopes, and return the search response as a JSON-safe
   map.
-- `TamaDex.MCP.handle_execute/4` SHALL also take the host's executors, and
+- `Tama.Dex.MCP.handle_execute/4` SHALL also take the host's executors, and
   return either the execute result or an `error` object with a stable kind
   and the `dispatched` flag.
 - Handlers SHALL use the caller's verified scopes for every operation. A

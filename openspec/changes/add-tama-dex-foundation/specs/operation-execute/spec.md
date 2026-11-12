@@ -4,7 +4,7 @@
 
 ### Requirement: Validation before dispatch
 
-`TamaDex.execute/4` SHALL run in the caller's process. It SHALL check, in order:
+`Tama.Dex.execute/4` SHALL run in the caller's process. It SHALL check, in order:
 
 1. the operation exists and is visible to the caller's verified scopes,
    reporting `not_found` otherwise, including for operations that exist but are

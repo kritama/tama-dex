@@ -4,7 +4,7 @@
 
 ### Requirement: Scope-filtered search
 
-`TamaDex.search/3` SHALL require the caller's verified scopes.
+`Tama.Dex.search/3` SHALL require the caller's verified scopes.
 
 - It SHALL return only operations whose every `x-tama-scopes` entry is among
   those scopes.
@@ -54,7 +54,7 @@ description and input property names and descriptions.
 - The encoded response MUST stay within 64 KiB. Input schemas are dropped from
   the lowest-ranked results first, each marked `schema_omitted`, and the
   response sets `truncated` if results themselves were cut.
-- `TamaDex.describe/3` SHALL return one visible operation in full, including
+- `Tama.Dex.describe/3` SHALL return one visible operation in full, including
   response schemas and opaque extensions.
 
 #### Scenario: Large schemas

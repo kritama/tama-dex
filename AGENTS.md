@@ -12,7 +12,7 @@ server.
 
 - Do not add an application callback. Loading or starting the dependency must
   not open a database, create files, start processes, or fetch anything. The
-  host starts `TamaDex.Index` under its own supervisor, with an explicit
+  host starts `Tama.Dex.Index` under its own supervisor, with an explicit
   database path, and passes the index into every call.
 - Do not add HTTP endpoints, listeners, Phoenix, Ecto, Plug servers, an MCP
   server, or network fetching of documents or cassettes. Hosts pass documents

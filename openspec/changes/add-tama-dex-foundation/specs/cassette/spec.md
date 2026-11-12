@@ -4,7 +4,7 @@
 
 ### Requirement: Cassette build
 
-`TamaDex.Cassette.build/2` and `mix tama_dex.cassette` SHALL build a
+`Tama.Dex.Cassette.build/2` and `mix tama.dex.cassette` SHALL build a
 `tama-cassette/1` file from one or more profile documents, given as zero-arity
 functions or JSON files.
 
@@ -19,7 +19,7 @@ functions or JSON files.
 
 #### Scenario: Producer CI build
 
-- **WHEN** a producer's CI runs `mix tama_dex.cassette --document Opsmaru.Incus.Operations.openapi --document Opsmaru.Incus.NativeOperations.openapi --output opsmaru_incus-0.2.0.tama-cassette`
+- **WHEN** a producer's CI runs `mix tama.dex.cassette --document Opsmaru.Incus.Operations.openapi --document Opsmaru.Incus.NativeOperations.openapi --output opsmaru_incus-0.2.0.tama-cassette`
 - **THEN** one cassette holding both sources is written, and its content digest and SHA-256 are printed
 
 #### Scenario: Reproducible content
@@ -29,7 +29,7 @@ functions or JSON files.
 
 ### Requirement: Cassette verification
 
-`TamaDex.Cassette.verify/2` SHALL treat a cassette as untrusted input. It
+`Tama.Dex.Cassette.verify/2` SHALL treat a cassette as untrusted input. It
 SHALL:
 - reject files over 64 MiB before opening;
 - check the file's SHA-256 when the host gives one;
@@ -52,7 +52,7 @@ SHALL:
 
 ### Requirement: Cassette import
 
-`TamaDex.import/3` SHALL verify a cassette, then install each of its sources
+`Tama.Dex.import/3` SHALL verify a cassette, then install each of its sources
 with the per-source atomic replacement and duplicate rules of `load/2`.
 
 - It SHALL copy prebuilt rows only when the host supplied a matching SHA-256

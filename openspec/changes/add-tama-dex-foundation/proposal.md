@@ -25,9 +25,9 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
     schema, a `200` result schema and an optional `default` error schema.
   - `x-tama-*` extensions carry the source ID, required scopes, the
     destructive flag, any confirmation rule and informational bounds.
-  - A pure `TamaDex.Profile.validate/1` checks documents, backed by a published
+  - A pure `Tama.Dex.Profile.validate/1` checks documents, backed by a published
     JSON Schema. Producers can use it in their tests.
-- **SQLite index:** `TamaDex.Index` is a process the host starts under its own
+- **SQLite index:** `Tama.Dex.Index` is a process the host starts under its own
   supervisor, with an explicit path or an in-memory database.
   - Loading a document replaces that source's entries in one transaction.
     Reloading an unchanged document does nothing.
@@ -53,7 +53,7 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
 - **Cassettes:** a portable, read-only SQLite file (`.tama-cassette`). It
   holds a prebuilt index plus the canonical documents it was built from and
   their digests.
-  - Producers build one in CI with `mix tama_dex.cassette`. opsmaru_incus will
+  - Producers build one in CI with `mix tama.dex.cassette`. opsmaru_incus will
     publish one with every release.
   - Hosts verify and import it at install or start. Prebuilt rows are copied
     only when the host pins the cassette's SHA-256. Otherwise the index is

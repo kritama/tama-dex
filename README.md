@@ -1,4 +1,4 @@
-# TamaDex
+# tama-dex
 
 Index and search for operation catalogues, so an MCP server can expose just two
 tools, `search` and `execute`, in place of one tool per operation.
@@ -11,7 +11,7 @@ tools, `search` and `execute`, in place of one tool per operation.
 A host such as Macus exposes dozens of operations from several sources. For
 example, `opsmaru_incus` alone provides 32 Incus operations, and Macus adds its
 own runtime operations. One MCP tool per operation floods `tools/list`, and
-each source would otherwise invent its own description format. TamaDex
+each source would otherwise invent its own description format. tama-dex
 replaces that with:
 
 1. **One ingestion standard.** Every source publishes an OpenAPI 3.1 document
@@ -28,7 +28,7 @@ replaces that with:
    that source, for example `Opsmaru.Incus.Operations.run/3`.
 
 5. **Cassettes.** A producer's CI can build a portable, prebuilt index file
-   (`.tama-cassette`) with `mix tama_dex.cassette`. For example, every
+   (`.tama-cassette`) with `mix tama.dex.cassette`. For example, every
    opsmaru_incus release publishes one. A host verifies it and imports it at
    install or start. Prebuilt rows are copied only when the host pins the
    cassette's SHA-256. Otherwise the index is rebuilt from the documents
@@ -40,14 +40,14 @@ replaces that with:
  opsmaru_incus ──┐  tama-operations/1 documents (data)
  Macus runtime ──┤
                  v
-   host (e.g. Macus) ── TamaDex.Index (SQLite, host-supervised)
+   host (e.g. Macus) ── Tama.Dex.Index (SQLite, host-supervised)
                  │
-                 └── MCP server: search / execute ── TamaDex handlers
+                 └── MCP server: search / execute ── Tama.Dex handlers
                                                        │
                                      host executor per source (run/3, ...)
 ```
 
-TamaDex is a library. It starts nothing on load, holds no listener, never
+tama-dex is a library. It starts nothing on load, holds no listener, never
 fetches documents or cassettes over the network, and never runs an operation itself. It
 doesn't depend on `tama_mcp`. It provides the two tool definitions as data
 for the host's MCP server.

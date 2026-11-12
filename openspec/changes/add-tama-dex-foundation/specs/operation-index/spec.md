@@ -8,7 +8,7 @@ The library SHALL have no application callback.
 
 - Loading or starting the `:tama_dex` dependency MUST NOT open a database,
   create files, start processes or fetch anything.
-- A host SHALL start `TamaDex.Index` explicitly, under its own supervisor,
+- A host SHALL start `Tama.Dex.Index` explicitly, under its own supervisor,
   with a required `path` (a file path, or `:memory`).
 - A database file MUST be created with mode 0600 and opened in WAL mode.
 - One index process SHALL own the connection and serialize writes.
@@ -20,12 +20,12 @@ The library SHALL have no application callback.
 
 #### Scenario: Missing path
 
-- **WHEN** `TamaDex.Index.start_link/1` is called without `path`
+- **WHEN** `Tama.Dex.Index.start_link/1` is called without `path`
 - **THEN** it fails to start with an argument error, and creates nothing
 
 ### Requirement: Per-source loading
 
-`TamaDex.load/2` SHALL validate a whole profile document before writing.
+`Tama.Dex.load/2` SHALL validate a whole profile document before writing.
 
 - It SHALL replace every entry of that document's source in a single
   transaction.
@@ -35,8 +35,8 @@ The library SHALL have no application callback.
   fail, naming the conflicting IDs and source, with no change.
 - A failed load MUST leave the source's previous entries and compiled schemas
   in place.
-- `TamaDex.unload/2` SHALL remove one source's entries.
-- `TamaDex.sources/1` SHALL report each source's title, version, profile,
+- `Tama.Dex.unload/2` SHALL remove one source's entries.
+- `Tama.Dex.sources/1` SHALL report each source's title, version, profile,
   digest, operation count and load time.
 
 #### Scenario: Source replaced atomically
@@ -56,12 +56,12 @@ The library SHALL have no application callback.
 
 ### Requirement: Startup-bounded indexing and readiness
 
-- `TamaDex.load/3` and `TamaDex.import/3` SHALL accept a `timeout`. On expiry
+- `Tama.Dex.load/3` and `Tama.Dex.import/3` SHALL accept a `timeout`. On expiry
   they SHALL roll back the source transaction, keep the previous entries and
   return `{:error, :deadline}`.
 - `import/3` with `async: true` SHALL return after the size and SHA-256
   checks, and finish in the index process.
-- `TamaDex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
+- `Tama.Dex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
   or a failure.
 - While no source has been committed and indexing is in progress, `search`,
   `describe` and `execute` SHALL return `not_ready` with `dispatched: false`,
@@ -98,7 +98,7 @@ The SQLite database SHALL be treated as derived data.
 #### Scenario: Older index file
 
 - **WHEN** a host opens a database written by an older schema version
-- **THEN** every table is recreated empty, `[:tama_dex, :index, :recreated]` is emitted, and `TamaDex.sources/1` returns an empty list
+- **THEN** every table is recreated empty, `[:tama_dex, :index, :recreated]` is emitted, and `Tama.Dex.sources/1` returns an empty list
 
 ### Requirement: Index persistence
 

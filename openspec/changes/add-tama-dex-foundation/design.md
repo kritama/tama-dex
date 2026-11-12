@@ -57,7 +57,7 @@
 
 The library has no `Application` module.
 
-- **Index process:** `TamaDex.Index.start_link(opts)` starts one GenServer
+- **Index process:** `Tama.Dex.Index.start_link(opts)` starts one GenServer
   that owns two exqlite connections. A read connection serves `search`,
   `describe` and lookups. A write connection is used only by a linked writer
   process that runs loads and imports, one at a time.
@@ -80,20 +80,20 @@ The library has no `Application` module.
 - **Public API:**
 
 ```elixir
-TamaDex.Profile.validate(document) :: {:ok, TamaDex.Document.t()} | {:error, [TamaDex.Profile.Issue.t()]}
-TamaDex.load(index, document, opts) :: {:ok, %{source: s, operations: n, changed: boolean}} | {:error, term}
-TamaDex.import(index, path, opts)   :: {:ok, [%{source, changed, mode}]} | {:error, term}
+Tama.Dex.Profile.validate(document) :: {:ok, Tama.Dex.Document.t()} | {:error, [Tama.Dex.Profile.Issue.t()]}
+Tama.Dex.load(index, document, opts) :: {:ok, %{source: s, operations: n, changed: boolean}} | {:error, term}
+Tama.Dex.import(index, path, opts)   :: {:ok, [%{source, changed, mode}]} | {:error, term}
                                      # opts: sha256:, timeout:, async: true (returns :ok at once)
-TamaDex.Index.status(index)        :: :ready | :empty | {:importing, progress} | {:failed, reason}
-TamaDex.unload(index, source)      :: :ok
-TamaDex.sources(index)             :: [%{source, title, version, profile, digest, operations, loaded_at}]
-TamaDex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}}
-TamaDex.describe(index, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found}
-TamaDex.execute(index, operation_id, input, scopes: scopes, executors: %{source => executor}, context: term)
-  :: {:ok, %{operation_id, source, result}} | {:error, TamaDex.Error.t()}
-TamaDex.MCP.search_tool() / execute_tool()          # definitions as data
-TamaDex.MCP.handle_search(index, args, caller)      # JSON-safe map
-TamaDex.MCP.handle_execute(index, args, caller, executors)
+Tama.Dex.Index.status(index)        :: :ready | :empty | {:importing, progress} | {:failed, reason}
+Tama.Dex.unload(index, source)      :: :ok
+Tama.Dex.sources(index)             :: [%{source, title, version, profile, digest, operations, loaded_at}]
+Tama.Dex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolean}}
+Tama.Dex.describe(index, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found}
+Tama.Dex.execute(index, operation_id, input, scopes: scopes, executors: %{source => executor}, context: term)
+  :: {:ok, %{operation_id, source, result}} | {:error, Tama.Dex.Error.t()}
+Tama.Dex.MCP.search_tool() / execute_tool()          # definitions as data
+Tama.Dex.MCP.handle_search(index, args, caller)      # JSON-safe map
+Tama.Dex.MCP.handle_execute(index, args, caller, executors)
 ```
 
 ### 2. Ingestion standard: OpenAPI 3.1 with `x-tama-*` extensions
@@ -124,7 +124,7 @@ The profile itself is defined in `docs/tama-operations-profile.md`.
     carry them.
   - The success branch of `output_schema` → `200`, and the error branch →
     `default`.
-- **Validation:** `TamaDex.Profile.validate/1` is pure. It validates the
+- **Validation:** `Tama.Dex.Profile.validate/1` is pure. It validates the
   document shape against `priv/profile/tama-operations-1.schema.json`, then
   applies the semantic rules JSON Schema can't express:
   - the path suffix equals `operationId`;
@@ -140,7 +140,7 @@ The profile itself is defined in `docs/tama-operations-profile.md`.
 
 ### 3. Loading and replacement
 
-`TamaDex.load/2`:
+`Tama.Dex.load/2`:
 
 1. Validates the whole document.
 2. Computes the SHA-256 digest of its canonical JSON (sorted keys, no
@@ -238,7 +238,7 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
 7. **Return:** `{:ok, %{operation_id, source, result}}`, or the executor's
    `{:error, error}` passed through after it validates.
 
-`TamaDex.Error` has `kind`, `dispatched` (boolean), a bounded `message` and
+`Tama.Dex.Error` has `kind`, `dispatched` (boolean), a bounded `message` and
 optional bounded `details`.
 
 - **`dispatched: false`:** steps 1–4 (`not_found`, `no_executor`,
@@ -249,7 +249,7 @@ optional bounded `details`.
 
 ### 7. MCP tool definitions
 
-`TamaDex.MCP.search_tool/0` and `execute_tool/0` return
+`Tama.Dex.MCP.search_tool/0` and `execute_tool/0` return
 `%{name, title, description, input_schema, output_schema, annotations}`.
 
 - **`search` input:** `{query?, source?, tags?, limit?, include_schemas?}`.
@@ -290,14 +290,14 @@ imports.
   wall-clock time, so `loaded_at` is set at import. The build ends with
   `VACUUM`, so the file is compact. Identical bytes are not guaranteed across
   SQLite versions, so identity is the content digest.
-- **Build:** `TamaDex.Cassette.build(documents, path)` validates every
+- **Build:** `Tama.Dex.Cassette.build(documents, path)` validates every
   document, rejects duplicate IDs across them, writes to a temporary file and
-  renames it into place. `mix tama_dex.cassette --document Mod.fun ...
+  renames it into place. `mix tama.dex.cassette --document Mod.fun ...
   --file doc.json ... --output path` runs in a producer's CI, calling
   zero-arity functions from the project's code or reading JSON files, and
   prints the content digest and file SHA-256. tama_dex is then only a
   dev/test dependency of the producer.
-- **Verify:** `TamaDex.Cassette.verify(path, sha256: pin)` treats the file as
+- **Verify:** `Tama.Dex.Cassette.verify(path, sha256: pin)` treats the file as
   untrusted. It:
   - checks the size limit (64 MiB) and, when given, the file SHA-256;
   - opens the file read-only, with extension loading off;
@@ -308,7 +308,7 @@ imports.
   - validates every document against the profile.
 
   It returns the manifest or bounded issues.
-- **Import:** `TamaDex.import(index, path, sha256: pin)` verifies first, then
+- **Import:** `Tama.Dex.import(index, path, sha256: pin)` verifies first, then
   installs each source with the same per-source replacement and duplicate
   rules as `load/2`, in one transaction.
   - **Copy mode** is used only when the host passed a matching `sha256` pin
@@ -337,7 +337,7 @@ readiness that may lag runtime readiness.
 - **Background import:** `import(index, path, async: true, ...)` returns `:ok`
   once the cassette has been checked for size and file SHA-256, and imports in
   the index process.
-  - `TamaDex.Index.status/1` reports `:empty`, `{:importing, %{done: n,
+  - `Tama.Dex.Index.status/1` reports `:empty`, `{:importing, %{done: n,
     total: m}}`, `:ready` or `{:failed, reason}`, and emits telemetry on each
     change.
   - A host can await readiness or poll it.
@@ -356,7 +356,7 @@ readiness that may lag runtime readiness.
   later change.
 - **A producer emitting a slightly wrong document** makes the load fail
   loudly, with pointers, and leaves the previous version in place. Producers
-  get `TamaDex.Profile.validate/1` and fixtures for their tests.
+  get `Tama.Dex.Profile.validate/1` and fixtures for their tests.
 - **A tampered or malformed cassette:** a SHA-256 pin is required for copy
   mode. Otherwise the index is rebuilt from documents whose digests were
   verified. A strict check of `sqlite_master` rejects triggers and views, and
