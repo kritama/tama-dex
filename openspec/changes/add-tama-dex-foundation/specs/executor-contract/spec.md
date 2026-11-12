@@ -59,5 +59,5 @@ producers.
 
 #### Scenario: opsmaru_incus behind a host adapter
 
-- **WHEN** Macus registers `Macus.Dex.IncusExecutor`, which calls `Opsmaru.Incus.Operations.run/3` with `host:`, the verified caller from `call.context` and `call.scopes`
+- **WHEN** Macus registers `Macus.Dex.IncusExecutor`, which calls `Opsmaru.Incus.Operations.Composite.run/3` with `host:`, the verified caller from `call.context` and `call.scopes`
 - **THEN** opsmaru_incus operations execute through tama-dex, while opsmaru_incus compiles without tama_dex

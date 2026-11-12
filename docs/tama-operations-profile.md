@@ -7,8 +7,9 @@ extensions. Producers build it as plain data. They don't depend on tama-dex at
 runtime, but they may use `Tama.Dex.Profile.validate/1` as a test-only
 dependency to check conformance.
 
-Known producers are `opsmaru_incus` (`Opsmaru.Incus.Operations.openapi/0`,
-planned for 0.2.0) and Macus (its runtime operations).
+Known producers are `opsmaru_incus` (`Opsmaru.Incus.Operations.Composite.openapi/0`
+and `Opsmaru.Incus.Operations.Native.openapi/0`, planned for 0.2.0) and Macus
+(its runtime operations).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 

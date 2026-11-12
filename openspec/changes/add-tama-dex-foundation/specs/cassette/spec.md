@@ -21,7 +21,7 @@ files.
 
 #### Scenario: Producer CI build
 
-- **WHEN** a producer's CI runs `mix tama.dex.cassette --name opsmaru_incus --version 0.2.0 --document Opsmaru.Incus.Operations.openapi --document Opsmaru.Incus.NativeOperations.openapi --output opsmaru_incus-0.2.0.tama-cassette`
+- **WHEN** a producer's CI runs `mix tama.dex.cassette --name opsmaru_incus --version 0.2.0 --document Opsmaru.Incus.Operations.Composite.openapi --document Opsmaru.Incus.Operations.Native.openapi --output opsmaru_incus-0.2.0.tama-cassette`
 - **THEN** one `opsmaru_incus` cassette holding both sources is written, and its content digest and SHA-256 are printed
 
 #### Scenario: Reproducible content

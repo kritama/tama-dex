@@ -3,7 +3,9 @@
 ## Context
 
 - **First producer:** `opsmaru_incus` 0.1.0 (Hex, 2026-11-12).
-  - `Opsmaru.Incus.Operations.all/0` lists 32 operations, and `describe/1`
+  - `Opsmaru.Incus.Operations.all/0` lists 32 operations (moving to
+    `Opsmaru.Incus.Operations.Composite` in 0.2.0, beside
+    `Opsmaru.Incus.Operations.Native`), and `describe/1`
     returns each one's name, title, description, scope, destructive flag,
     confirmation (`%{"field" => "confirm", "value" => "the full fingerprint"}`
     or `nil`), bounds, input and output schemas, and the client evidence it
