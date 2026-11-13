@@ -28,14 +28,14 @@
 
 ## 4. Search
 
-- [ ] 4.1 Implement `Tama.Dex.search/3` and `describe/4` (Decision 5), ranking all cassettes together in the one FTS table.
+- [x] 4.1 Implement `Tama.Dex.search/3` and `describe/4` (Decision 5), ranking all cassettes together in the one FTS table.
   - `scopes` is required.
   - Caller text becomes quoted prefix terms joined with AND. Raw FTS5 syntax never reaches SQLite.
   - Rank with weighted bm25, boosting an exact `operationId` match first, then order ties by cassette and ID. An empty query lists in `(cassette, operationId)` order.
   - Filters: `cassette`, `source`, `tags`, `include_deprecated` and `include_destructive`. Results carry `cassette` and `cassette_version`.
   - `limit` defaults to 5; outside 1–20 raises `ArgumentError`. Query text over 512 bytes raises `ArgumentError`, and text with no terms is an empty query. Descriptions truncate at 1024 characters with a flag.
   - Keep within the 64 KiB budget, dropping schemas from the lowest-ranked results first.
-- [ ] 4.2 Test every operation-search scenario, including results from two cassettes in one ranking, the cassette filter, injection strings (`"`, `NEAR`, `*`, `:`, `-`, `OR`, unbalanced parentheses), hidden operations never affecting counts or flags, field-name matches, punctuation-only and over-long queries, out-of-range limits, and budget trimming.
+- [x] 4.2 Test every operation-search scenario, including results from two cassettes in one ranking, the cassette filter, injection strings (`"`, `NEAR`, `*`, `:`, `-`, `OR`, unbalanced parentheses), hidden operations never affecting counts or flags, field-name matches, punctuation-only and over-long queries, out-of-range limits, and budget trimming.
 
 ## 5. Execute
 

@@ -294,8 +294,9 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
 - **Filters:**
   - `scopes:` is required. An operation is visible only if all its scopes
     are in the caller's verified scopes.
-  - Optional: `cassette:`, `source:`, `tags:`, `include_deprecated:`
-    (default false) and `include_destructive:` (default true).
+  - Optional: `cassette:`, `source:`, `tags:` (operations carrying every
+    listed tag), `include_deprecated:` (default false) and
+    `include_destructive:` (default true).
 - **Limits:** `limit` defaults to 5. A limit outside 1–20 raises
   `ArgumentError` (`invalid_arguments` from the MCP handler). Results are
   ordered by rank, then cassette, then `operation_id`.

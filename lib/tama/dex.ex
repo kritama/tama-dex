@@ -23,6 +23,7 @@ defmodule Tama.Dex do
   alias Tama.Dex.Index
   alias Tama.Dex.Index.Store
   alias Tama.Dex.Profile
+  alias Tama.Dex.Search
 
   @cassette_name ~r/^[a-z][a-z0-9_]{0,63}$/
 
@@ -118,6 +119,88 @@ defmodule Tama.Dex do
   """
   @spec cassettes(Index.t()) :: [map()]
   def cassettes(index), do: Index.read(index, &Store.cassettes/1)
+
+  @doc """
+  Searches the operations the caller may run, across every cassette in one
+  ranking.
+
+  `query` is caller text of at most 512 bytes, or `nil`. It is reduced to
+  letter-and-digit terms, each matched as a prefix, all of which must match.
+  Raw FTS5 syntax never reaches SQLite, so quotes, `NEAR`, `*`, `:`, `-` and
+  `OR` in the text are inert. Text with no term lists operations in
+  `(cassette, operation_id)` order.
+
+  Matches are ranked by operation ID, then summary, tags, description and
+  input fields. An `operationId` equal to the whole query ranks first, and
+  ties are ordered by cassette, then `operationId`.
+
+  ## Options
+
+  - `:scopes` (required): the caller's verified scopes. Only operations
+    whose every scope is among them are visible, and hidden operations never
+    affect results, counts or flags.
+  - `:limit`: 1 to 20, default 5.
+  - `:cassette`, `:source`: only operations in that cassette or source.
+  - `:tags`: only operations carrying every listed tag.
+  - `:include_deprecated` (default `false`), `:include_destructive`
+    (default `true`).
+  - `:include_schemas` (default `true`): include each result's input schema.
+
+  Raises `ArgumentError` for a missing `:scopes`, a query over 512 bytes, a
+  limit outside 1 to 20, or another invalid option.
+
+  Returns `{:ok, %{results: results, truncated: truncated}}`. Each result has
+  `cassette`, `cassette_version`, `operation_id`, `source`, `summary`,
+  `description` (cut to 1024 characters, with `description_truncated`),
+  `tags`, `scopes`, `destructive`, `deprecated`, `confirmation`, `bounds` and
+  `input_schema`. The encoded response stays within 64 KiB: input schemas
+  are dropped from the lowest-ranked results first, each marked
+  `schema_omitted: true`, and `truncated` is `true` when results themselves
+  had to be cut.
+  """
+  @spec search(Index.t(), String.t() | nil, keyword()) ::
+          {:ok, %{results: [map()], truncated: boolean()}}
+  def search(index, query, opts) do
+    options = Search.options!(query, opts)
+
+    metadata = %{
+      query_length: byte_size(options.text),
+      cassette: options.cassette,
+      limit: options.limit
+    }
+
+    :telemetry.span([:tama_dex, :search], metadata, fn ->
+      response = Index.read(index, &Search.search(&1, options))
+
+      {{:ok, response},
+       Map.merge(metadata, %{results: length(response.results), truncated: response.truncated})}
+    end)
+  end
+
+  @doc """
+  Returns one operation the caller may run, addressed by cassette and
+  `operationId`, in full: the search result fields with the whole
+  description, plus `identity`, `success_schema`, `error_schema` and the
+  operation's opaque `extensions`.
+
+  An unknown cassette or operation, or one the caller's `:scopes` (required)
+  don't allow, returns `{:error, :not_found}`.
+  """
+  @spec describe(Index.t(), cassette(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, :not_found}
+  def describe(index, cassette, operation_id, opts) do
+    cassette = cassette!(cassette)
+    scopes = Search.scopes!(Keyword.get(opts, :scopes))
+
+    unless is_binary(operation_id) do
+      raise ArgumentError, "the operation ID must be a string, got: #{inspect(operation_id)}"
+    end
+
+    case Index.read(index, &Search.describe(&1, cassette, operation_id, scopes)) do
+      nil -> {:error, :not_found}
+      operation -> {:ok, operation}
+    end
+  end
 
   @doc false
   @spec cassette!(term()) :: cassette()

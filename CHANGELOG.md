@@ -24,3 +24,8 @@ The project follows Semantic Versioning and uses Conventional Commits.
   `cassettes/1`. A load validates the whole document, replaces one source of
   a local cassette in one transaction, and is a no-op for an unchanged
   digest.
+- Added `Tama.Dex.search/3` and `describe/4`: scope-filtered FTS5 search
+  across every cassette in one bm25 ranking, with caller text reduced to
+  quoted prefix terms, an exact `operationId` boosted first, cassette,
+  source, tag, deprecated and destructive filters, and responses kept within
+  64 KiB by dropping the lowest-ranked input schemas first.
