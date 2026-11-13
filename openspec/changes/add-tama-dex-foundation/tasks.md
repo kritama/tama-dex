@@ -2,9 +2,9 @@
 
 ## 1. Project
 
-- [ ] 1.1 Create the Mix library `:tama_dex` (root module `Tama.Dex` in `lib/tama/dex.ex`, every module under `Tama.Dex.*`, version `0.1.0-dev`, Elixir `~> 1.18`, Apache-2.0) with no `mod:` application callback. Add dependencies `exqlite ~> 0.43`, `jsonschex ~> 0.11.2` (the latest; a tama_mcp release must move to it before a host can depend on both), `jason ~> 1.4` and `telemetry ~> 1.3`, plus dev/test `credo`, `dialyxir` and `ex_doc`. Add the `precommit` alias and `cli` preferred env, matching `tama_mcp` (format check, warnings as errors, Credo strict, `test --cover`), and the Dialyzer and docs config. Ship only `lib`, `priv/profile`, `docs/tama-operations-profile.md`, `mix.exs`, `README.md`, `CHANGELOG.md` and `LICENSE` in the package. Confirm `mise run check` passes.
-- [ ] 1.2 Add a test that starts the `:tama_dex` application and asserts it creates no process, ETS table or file.
-- [ ] 1.3 Add `.github/workflows/ci.yml` modeled on `tama_mcp`: pull requests, `develop` pushes and dispatch; `contents: read`; actions pinned by commit SHA; Elixir 1.18.x and 1.19.5 on OTP 27.3.4.16; `hex.audit`, `precommit`, Dialyzer PLT and check, `docs`, `hex.build`; and strict OpenSpec validation through mise. Lint it with actionlint.
+- [x] 1.1 Create the Mix library `:tama_dex` (root module `Tama.Dex` in `lib/tama/dex.ex`, every module under `Tama.Dex.*`, version `0.1.0-dev`, Elixir `~> 1.18`, Apache-2.0) with no `mod:` application callback. Add dependencies `exqlite ~> 0.43`, `jsonschex ~> 0.11.2` (the latest; a tama_mcp release must move to it before a host can depend on both), `jason ~> 1.4` and `telemetry ~> 1.3`, plus dev/test `credo`, `dialyxir` and `ex_doc`. Add the `precommit` alias and `cli` preferred env, matching `tama_mcp` (format check, warnings as errors, Credo strict, `test --cover`), and the Dialyzer and docs config. Ship only `lib`, `priv/profile`, `docs/tama-operations-profile.md`, `mix.exs`, `README.md`, `CHANGELOG.md` and `LICENSE` in the package. Confirm `mise run check` passes.
+- [x] 1.2 Add a test that starts the `:tama_dex` application and asserts it creates no process, ETS table or file.
+- [x] 1.3 Add `.github/workflows/ci.yml` modeled on `tama_mcp`: pull requests, `develop` pushes and dispatch; `contents: read`; actions pinned by commit SHA; Elixir 1.18.x and 1.19.5 on OTP 27.3.4.16; `hex.audit`, `precommit`, Dialyzer PLT and check, `docs`, `hex.build`; and strict OpenSpec validation through mise. Lint it with actionlint.
 
 ## 2. Profile
 
