@@ -12,6 +12,25 @@ defmodule Tama.Dex.JSON do
   @spec encode!(term()) :: binary()
   def encode!(term), do: term |> canonicalize() |> Jason.encode!()
 
+  @doc """
+  Whether `term` is JSON data: maps with UTF-8 string keys, lists, UTF-8
+  strings, numbers, booleans and `nil`.
+  """
+  @spec data?(term()) :: boolean()
+  def data?(map) when is_map(map) and not is_struct(map) do
+    Enum.all?(map, fn {key, value} -> is_binary(key) and String.valid?(key) and data?(value) end)
+  end
+
+  def data?(list) when is_list(list), do: list_data?(list)
+  def data?(value) when is_binary(value), do: String.valid?(value)
+  def data?(value) when is_number(value) or is_boolean(value) or is_nil(value), do: true
+  def data?(_value), do: false
+
+  # Also rejects improper lists.
+  defp list_data?([]), do: true
+  defp list_data?([head | tail]), do: data?(head) and list_data?(tail)
+  defp list_data?(_tail), do: false
+
   @doc "The lowercase hex SHA-256 of `data`."
   @spec sha256(iodata()) :: String.t()
   def sha256(data), do: :sha256 |> :crypto.hash(data) |> Base.encode16(case: :lower)

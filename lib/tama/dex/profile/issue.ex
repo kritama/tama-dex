@@ -34,6 +34,8 @@ defmodule Tama.Dex.Profile.Issue do
   | `:schema_compile_failed` | A request or response schema doesn't compile as JSON Schema 2020-12. |
   """
 
+  alias Tama.Dex.Text
+
   @type code ::
           :invalid_document
           | :invalid_json
@@ -67,20 +69,10 @@ defmodule Tama.Dex.Profile.Issue do
   @doc false
   @spec new(String.t(), code(), String.t()) :: t()
   def new(pointer, code, message) do
-    %__MODULE__{pointer: pointer, code: code, message: bound(message)}
-  end
-
-  defp bound(message) when byte_size(message) <= @max_message_bytes, do: message
-
-  defp bound(message) do
-    prefix = binary_part(message, 0, @max_message_bytes - 3)
-
-    valid =
-      case :unicode.characters_to_binary(prefix) do
-        {:incomplete, valid, _rest} -> valid
-        valid when is_binary(valid) -> valid
-      end
-
-    valid <> "..."
+    %__MODULE__{
+      pointer: pointer,
+      code: code,
+      message: Text.bound(message, @max_message_bytes)
+    }
   end
 end

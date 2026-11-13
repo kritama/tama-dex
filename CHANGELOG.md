@@ -29,3 +29,10 @@ The project follows Semantic Versioning and uses Conventional Commits.
   quoted prefix terms, an exact `operationId` boosted first, cassette,
   source, tag, deprecated and destructive filters, and responses kept within
   64 KiB by dropping the lowest-ranked input schemas first.
+- Added `Tama.Dex.execute/5`, the `Tama.Dex.Executor` behaviour, and the
+  `Tama.Dex.Call` and `Tama.Dex.Error` structs. Execute checks visibility,
+  the executor registration, the input shape, the confirmation field and the
+  input schema before dispatching exactly once with no deadline, validates
+  the result against the declared schemas, and marks every error with
+  `dispatched`. Inputs and results are never stored, logged or sent in
+  telemetry.

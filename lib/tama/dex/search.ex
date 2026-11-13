@@ -167,7 +167,7 @@ defmodule Tama.Dex.Search do
 
   defp filters(options) do
     [
-      {visible(), [Jason.encode!(options.scopes)]},
+      {visible_clause(), [Jason.encode!(options.scopes)]},
       options.cassette && {"o.cassette = ?", [options.cassette]},
       options.source && {"o.source = ?", [options.source]},
       options.tags != [] &&
@@ -184,8 +184,11 @@ defmodule Tama.Dex.Search do
     |> then(fn {clauses, args} -> {clauses |> Enum.reverse() |> Enum.join(" AND "), args} end)
   end
 
+  @doc false
   # Visible when every one of the operation's scopes is among the caller's.
-  defp visible do
+  # Takes one argument: the caller's scopes as a JSON array.
+  @spec visible_clause() :: String.t()
+  def visible_clause do
     """
     NOT EXISTS (SELECT 1 FROM json_each(o.scopes) s
                 WHERE s.value NOT IN (SELECT value FROM json_each(?)))
@@ -295,7 +298,7 @@ defmodule Tama.Dex.Search do
            """
            SELECT #{@columns}, #{@detail_columns}
            FROM operations o JOIN cassettes c ON c.cassette = o.cassette
-           WHERE o.cassette = ? AND o.operation_id = ? AND #{visible()}
+           WHERE o.cassette = ? AND o.operation_id = ? AND #{visible_clause()}
            """,
            [cassette, operation_id, Jason.encode!(scopes)]
          ) do

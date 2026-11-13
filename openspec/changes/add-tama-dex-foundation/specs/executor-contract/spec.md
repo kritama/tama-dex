@@ -8,8 +8,9 @@ tama-dex SHALL define the `Tama.Dex.Executor` behaviour as the only way
 `execute` hands a validated call to a host.
 
 - It SHALL have one callback, `execute(call, input)`, returning `{:ok, map}`
-  or `{:error, map}`. Any other return value, or a map that can't be encoded
-  as JSON, is reported as `invalid_output`.
+  or `{:error, map}`. Any other return value, or a map that isn't JSON data
+  (string keys and JSON values, as decoded JSON), is reported as
+  `invalid_output`.
 - `call` SHALL be a `%Tama.Dex.Call{}` with `cassette`, `source`,
   `operation_id`, `scopes`, `context` and `opts`.
 - `scopes` SHALL be the same verified scopes tama-dex checked for the call,

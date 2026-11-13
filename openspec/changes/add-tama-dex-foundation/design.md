@@ -337,8 +337,9 @@ first error:
    field to be a required property, so validating the schema first would
    report a missing confirmation as `invalid_input`.
 5. **Input schema:** the input is validated against the compiled input
-   schema, and failures return `invalid_input` with bounded JSON-pointer
-   issues.
+   schema, and failures return `invalid_input` with at most 16 JSON-pointer
+   issues. Each names the failed keyword and the schema's constraint, never
+   the input value, and a missing property is reported at its own pointer.
 6. **Dispatch:** called exactly once, with no deadline added by tama-dex.
    Macus runtime start can legitimately run up to 600 s by default, with a
    caller budget of 1–3600 s. Timeouts belong to the executor and host, which
@@ -346,8 +347,8 @@ first error:
    Raises, exits and throws are caught and returned as `dispatch_failed`, with
    the kind and nothing else. tama-dex never retries.
 7. **Result check:** the executor must return `{:ok, map}` or
-   `{:error, map}`, with a map that encodes as JSON even when no `default` is
-   declared. `{:ok, result}` must match the `200` schema, and
+   `{:error, map}`, with a map that is JSON data (string keys, JSON values)
+   even when no `default` is declared. `{:ok, result}` must match the `200` schema, and
    `{:error, error}` must match `default` when declared. Anything else returns
    `invalid_output`, without the result's content. It does carry the values of
    the operation's `x-tama-identity` properties (top-level strings, integers

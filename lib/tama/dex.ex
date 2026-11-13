@@ -20,6 +20,7 @@ defmodule Tama.Dex do
   to one kind.
   """
 
+  alias Tama.Dex.Execute
   alias Tama.Dex.Index
   alias Tama.Dex.Index.Store
   alias Tama.Dex.Profile
@@ -28,6 +29,18 @@ defmodule Tama.Dex do
   @cassette_name ~r/^[a-z][a-z0-9_]{0,63}$/
 
   @type cassette :: String.t()
+
+  @type execute_result ::
+          {:ok,
+           %{cassette: cassette(), operation_id: String.t(), source: String.t(), result: map()}}
+          | {:error,
+             %{
+               cassette: cassette(),
+               operation_id: String.t(),
+               source: String.t(),
+               operation_error: map()
+             }}
+          | {:error, Tama.Dex.Error.t()}
 
   @type load_error ::
           {:invalid_document, [Profile.Issue.t()]}
@@ -192,15 +205,96 @@ defmodule Tama.Dex do
     cassette = cassette!(cassette)
     scopes = Search.scopes!(Keyword.get(opts, :scopes))
 
-    unless is_binary(operation_id) do
-      raise ArgumentError, "the operation ID must be a string, got: #{inspect(operation_id)}"
-    end
+    operation_id = operation_id!(operation_id)
 
     case Index.read(index, &Search.describe(&1, cassette, operation_id, scopes)) do
       nil -> {:error, :not_found}
       operation -> {:ok, operation}
     end
   end
+
+  @doc """
+  Validates a call and hands it to the host's executor for the operation's
+  source, exactly once.
+
+  Runs in the caller's process. Each check stops at its first failure, and
+  no executor is called unless all of them pass:
+
+  1. The operation exists in `cassette` (and only there) and the caller's
+     `:scopes` allow it, otherwise `:not_found`, which doesn't reveal
+     whether a hidden operation or cassette exists.
+  2. `:executors` has an entry for the operation's source, otherwise
+     `:no_executor`. See `Tama.Dex.Executor`.
+  3. `input` is a JSON object (a map with string keys and JSON values) of at
+     most 1 MiB once encoded, otherwise `:invalid_input`.
+  4. The operation's confirmation field, if it declares one, is present and
+     not empty, otherwise `:confirmation_required`. This comes before the
+     schema check, so a missing confirmation is never reported as invalid
+     input.
+  5. `input` matches the operation's input schema, otherwise
+     `:invalid_input` with the failing JSON pointers.
+
+  The executor is then called as `module.execute(call, input)` with a
+  `Tama.Dex.Call`. tama-dex adds no deadline, and never retries: a raise,
+  exit or throw returns `:dispatch_failed`. The return value must be
+  `{:ok, result}` matching the `200` schema, or `{:error, error}` matching
+  `default` when declared, each a JSON object; anything else returns
+  `:invalid_output`, carrying only the operation's `x-tama-identity` values.
+
+  ## Options
+
+  - `:scopes` (required): the caller's verified scopes, passed to the
+    executor as given.
+  - `:executors` (required): `%{source => module | {module, opts}}`.
+  - `:context`: any host term, passed to the executor as `call.context`.
+
+  ## Returns
+
+  - `{:ok, %{cassette, operation_id, source, result}}`;
+  - `{:error, %{cassette, operation_id, source, operation_error}}`: the
+    executor's own valid error, unchanged. The operation ran;
+  - `{:error, %Tama.Dex.Error{}}`: a tama-dex error, whose `dispatched`
+    says whether the executor was called. Match this form first.
+
+  Inputs and results are never stored, logged or sent in telemetry.
+  """
+  @spec execute(Index.t(), cassette(), String.t(), term(), keyword()) :: execute_result()
+  def execute(index, cassette, operation_id, input, opts) do
+    options = %{
+      cassette: cassette!(cassette),
+      operation_id: operation_id!(operation_id),
+      scopes: Search.scopes!(Keyword.get(opts, :scopes)),
+      executors: executors!(Keyword.get(opts, :executors)),
+      context: Keyword.get(opts, :context)
+    }
+
+    metadata = %{cassette: options.cassette, operation_id: options.operation_id}
+
+    :telemetry.span([:tama_dex, :execute], metadata, fn ->
+      {outcome, source} =
+        Execute.run(index, options.cassette, options.operation_id, input, options)
+
+      {outcome, Map.merge(metadata, %{source: source, outcome: outcome_kind(outcome)})}
+    end)
+  end
+
+  defp operation_id!(id) when is_binary(id), do: id
+
+  defp operation_id!(id) do
+    raise ArgumentError, "the operation ID must be a string, got: #{inspect(id)}"
+  end
+
+  defp executors!(executors) when is_map(executors), do: executors
+
+  defp executors!(nil),
+    do: raise(ArgumentError, ":executors is required, a map of source to executor")
+
+  defp executors!(_executors),
+    do: raise(ArgumentError, ":executors must be a map of source to executor")
+
+  defp outcome_kind({:ok, _result}), do: :ok
+  defp outcome_kind({:error, %Tama.Dex.Error{kind: kind}}), do: kind
+  defp outcome_kind({:error, %{operation_error: _error}}), do: :operation_error
 
   @doc false
   @spec cassette!(term()) :: cassette()

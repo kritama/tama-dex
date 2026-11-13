@@ -88,8 +88,9 @@ capability, as `module.execute(call, input)`.
 - A `{:ok, result}` SHALL match the operation's `200` schema.
 - An `{:error, error}` SHALL match its `default` schema when one is declared.
 - The executor SHALL return `{:ok, map}` or `{:error, map}`, and the map
-  SHALL encode as JSON, whether or not a `default` schema is declared. Any
-  other return value SHALL return `invalid_output`.
+  SHALL be JSON data (string keys and JSON values, as decoded JSON), whether
+  or not a `default` schema is declared. Any other return value SHALL return
+  `invalid_output`.
 - A mismatch SHALL return `invalid_output`, without any of the result's
   content except the values of the operation's `x-tama-identity` properties
   that are top-level strings, integers or booleans of at most 256 bytes.
