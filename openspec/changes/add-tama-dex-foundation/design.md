@@ -3,10 +3,10 @@
 ## Context
 
 - **First producer:** `opsmaru_incus` 0.1.0 (Hex, 2026-11-12).
-  - It exports 32 operations, and each descriptor gives the operation's name,
-    title, description, scope, destructive flag, confirmation (`%{"field" => "confirm", "value" => "the full fingerprint"}`
-    or `nil`), bounds, input and output schemas, and the client evidence it
-    requires.
+  - It exports 32 operations. Each descriptor gives the operation's name,
+    title, description, scope, destructive flag, confirmation
+    (`%{"field" => "confirm", "value" => "the full fingerprint"}` or `nil`),
+    bounds, input and output schemas, and the client evidence it requires.
   - Scopes are `incus.read` (22), `incus.write` (5), `incus.exec` (1) and
     `incus.delete` (4). Output schemas are `oneOf` a success object and an
     `error` object.
@@ -17,12 +17,12 @@
 - **First host:** Macus (upmaru/macus#9, `feature/elixir-server`).
   - `/mcp` advertises exactly `search` and `execute`.
   - Its catalogue combines `opsmaru_incus` operations with Macus runtime
-    operations, and operations the producer marks unavailable are excluded. With
-    cassette namespaces (Decision 3), names need only be unique within one
-    cassette.
+    operations, and operations the producer marks unavailable are excluded.
+    With cassette namespaces (Decision 3), names need only be unique within
+    one cassette.
   - `execute` passes the caller's verified scopes into the producer's run
-    function, so the MCP tool
-    scope is only an outer gate. `search` filters by the caller's scopes.
+    function, so the MCP tool scope is only an outer gate. `search` filters by
+    the caller's scopes.
   - It has recorded open questions on index ownership (see below).
 - **Kritama conventions (`tama_mcp` 0.2.0):** Elixir 1.19.5 on OTP 27.3.4.16,
   Apache-2.0, `mix precommit` (format check, warnings as errors, Credo strict,
@@ -31,7 +31,10 @@
   with `jsonschex`. Its tools are compile-time modules with fixed scopes, and
   raw schemas are allowed.
 - **Dependencies:** exqlite 0.43.0 compiles SQLite with
-  `SQLITE_ENABLE_FTS5=1`. jsonschex is at 0.11.2.
+  `SQLITE_ENABLE_FTS5=1`. tama-dex uses the latest jsonschex, 0.11.2
+  (`~> 0.11.2`). tama_mcp 0.2.0 still requires `~> 0.10.0`, so a host such
+  as Macus can combine the two only after a tama_mcp release moves to
+  `~> 0.11.2`. That bump is a separate change in tama-mcp.
 
 ## Goals
 
@@ -86,11 +89,18 @@ The library has no `Application` module.
     (Decision 3), not a separate database file.
   - Opening runs `PRAGMA journal_mode=WAL` and `foreign_keys=ON`.
 - **Compiled schema cache:** input and response schemas are compiled with
-  jsonschex. The index process holds them in a protected ETS table keyed by
-  cassette, operation and document digest.
+  jsonschex lazily, on an operation's first execute, and cached in a public
+  ETS table owned by the index process, keyed by the SHA-256 of the stored
+  schema text.
+  - Opening an index compiles nothing, so a large index never delays the
+    host's supervisor.
   - Reads (`search`, lookup for `execute`) are short queries on the read
-    connection, and never wait behind a load or import. Validation and
-    dispatch run in the caller's process against the ETS cache.
+    connection, and never wait behind a load or import. The lookup returns
+    the committed row, and its schema text gives the cache key, so a reload
+    needs no cache swap and a caller never pairs a new row with an old
+    schema. Validation and dispatch run in the caller's process.
+  - After each commit or unload, the index process drops cache entries that
+    no row references any more.
   - So neither a slow executor nor a running import blocks the index.
 - **Public API:**
 
@@ -99,7 +109,7 @@ Tama.Dex.Profile.validate(document) :: {:ok, Tama.Dex.Document.t()} | {:error, [
 Tama.Dex.load(index, document, cassette: name, timeout: ms)
   :: {:ok, %{cassette, source, operations, changed}} | {:error, term}
 Tama.Dex.import(index, path, sha256: pin, as: name, timeout: ms, async: boolean)
-  :: {:ok, %{cassette, version, mode, changed, sources: [...]}} | :ok | {:error, term}
+  :: {:ok, %{cassette, version, mode, changed, sources: [...]}} | {:ok, reference} | {:error, term}
 Tama.Dex.Index.status(index)        :: :ready | :empty | {:importing, progress} | {:failed, reason}
 Tama.Dex.unload(index, cassette)    :: :ok
 Tama.Dex.cassettes(index)           :: [%{cassette, kind, version, status, mode, digest, loaded_at, sources: [...]}]
@@ -107,7 +117,9 @@ Tama.Dex.search(index, query, opts) :: {:ok, %{results: [...], truncated: boolea
 Tama.Dex.describe(index, cassette, operation_id, scopes: scopes) :: {:ok, map} | {:error, :not_found | :not_ready}
 Tama.Dex.execute(index, cassette, operation_id, input,
                  scopes: scopes, executors: %{source => module | {module, opts}}, context: term)
-  :: {:ok, %{cassette, operation_id, source, result}} | {:error, Tama.Dex.Error.t()}
+  :: {:ok, %{cassette, operation_id, source, result}}
+   | {:error, %{cassette, operation_id, source, operation_error}}
+   | {:error, Tama.Dex.Error.t()}
 Tama.Dex.MCP.search_tool() / execute_tool()          # definitions as data
 Tama.Dex.MCP.handle_search(index, args, caller)      # JSON-safe map
 Tama.Dex.MCP.handle_execute(index, args, caller, executors)
@@ -150,7 +162,9 @@ The profile itself is defined in `docs/tama-operations-profile.md`.
   applies the semantic rules JSON Schema can't express:
   - the path suffix equals `operationId`;
   - IDs are unique within the document;
-  - the confirmation field is a required string property;
+  - the confirmation field is a required top-level string property, and
+    identity names are top-level properties, read through a top-level `$ref`
+    but never inside `allOf`/`anyOf`/`oneOf` (as the profile defines);
   - `$ref`s are internal and resolvable;
   - every operation schema compiles under jsonschex;
   - size and count limits hold.
@@ -200,7 +214,8 @@ namespace.
      another source of the same cassette (`duplicate_operation`, listing the
      IDs and owning source, with no change), deletes the source's rows,
      inserts the new ones, rebuilds their FTS rows and commits.
-  5. Swaps the compiled-schema cache entries only after the commit.
+  5. Leaves the compiled-schema cache alone. Entries are keyed by schema
+     digest, so the next execute compiles any new schema on first use.
 
   A failed load or import leaves the cassette's previous entries intact.
 - **`unload/2`** removes a whole cassette.
@@ -232,8 +247,9 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   tokenize='unicode61');                                                  -- rowid = operations.id
 ```
 
-- `fields` is the space-joined input property names and their descriptions,
-  so `fingerprint` finds `incus_image_delete`.
+- `fields` is the space-joined top-level input property names and their
+  descriptions, read as the profile defines top-level properties, so
+  `fingerprint` finds `incus_image_delete`.
 - `unicode61` splits on `_`, so `incus_instance_list` matches `instance`.
 - The FTS table stores its own copy of the text, since catalogues are small.
   Its rows are written and deleted alongside `operations`, sharing
@@ -245,6 +261,10 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   `schema_version` other than 1 means every table is dropped and recreated
   empty, a `{:recreated, old}` telemetry event fires, and the host reloads its
   documents. A newer version is never written by older code.
+- The schema version covers both the table definitions and how rows are
+  derived from documents: canonical JSON, bundled schemas, the FTS text and
+  any truncation. A change to either needs a new version, so rows built by
+  two tama-dex releases with the same schema version are interchangeable.
 
 ### 5. Search
 
@@ -252,6 +272,8 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   letters and digits. Each term is quoted and given a prefix wildcard
   (`"inst"*`), and terms are joined with AND. Raw FTS5 syntax never reaches
   SQLite, so `"`, `NEAR`, `*`, `:`, `-` and `OR` from callers are inert.
+  Longer text raises `ArgumentError` (`invalid_arguments` from the MCP
+  handler), and text with no terms is an empty query.
 - **Empty query:** lists the visible operations in `(cassette, operation_id)`
   order.
 - **Exact match:** an `operation_id` that matches exactly ranks first. If
@@ -262,13 +284,13 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
     are in the caller's verified scopes.
   - Optional: `cassette:`, `source:`, `tags:`, `include_deprecated:`
     (default false) and `include_destructive:` (default true).
-- **Limits:** `limit` defaults to 5, maximum 20. Results are ordered by rank,
-  then cassette, then `operation_id`.
+- **Limits:** `limit` defaults to 5. A limit outside 1–20 raises
+  `ArgumentError` (`invalid_arguments` from the MCP handler). Results are
+  ordered by rank, then cassette, then `operation_id`.
 - **Result fields:** `cassette`, `cassette_version`, `operation_id`, `source`,
-  `summary`, `description`
-  (truncated to 1024 characters with a flag), `tags`, `scopes`, `destructive`,
-  `deprecated`, `confirmation`, `bounds`, and `input_schema` when
-  `include_schemas` (default true).
+  `summary`, `description` (truncated to 1024 characters with a flag),
+  `tags`, `scopes`, `destructive`, `deprecated`, `confirmation`, `bounds`, and
+  `input_schema` when `include_schemas` (default true).
 - **Byte budget:** the whole result stays within 64 KiB of JSON. Schemas are
   dropped from the lowest-ranked results first, each marked
   `schema_omitted: true`. `truncated: true` is set if results themselves had
@@ -293,8 +315,9 @@ first error:
    `Tama.Dex.Executor`, or `{module, opts}`, otherwise `no_executor` (Decision
    11). It is called as `module.execute(call, input)` with a
    `%Tama.Dex.Call{}` and returns `{:ok, map} | {:error, map}`.
-3. **Input shape:** must be a map at most 1 MiB once encoded, otherwise
-   `invalid_input`.
+3. **Input shape:** must be a JSON object (a map with string keys and JSON
+   values) at most 1 MiB once encoded, otherwise `invalid_input`. Atom keys
+   are rejected here rather than silently failing the schema.
 4. **Confirmation:** when `x-tama-confirmation` is set, a missing or empty
    field returns `confirmation_required`, with the field and description.
    This runs before schema validation: the profile requires the confirmation
@@ -309,14 +332,19 @@ first error:
    return progress or a `running` status rather than being cut off locally.
    Raises, exits and throws are caught and returned as `dispatch_failed`, with
    the kind and nothing else. tama-dex never retries.
-7. **Result check:** `{:ok, result}` must match the `200` schema, and
-   `{:error, error}` must match `default` when declared. A mismatch returns
+7. **Result check:** the executor must return `{:ok, map}` or
+   `{:error, map}`, with a map that encodes as JSON even when no `default` is
+   declared. `{:ok, result}` must match the `200` schema, and
+   `{:error, error}` must match `default` when declared. Anything else returns
    `invalid_output`, without the result's content. It does carry the values of
    the operation's `x-tama-identity` properties (top-level strings, integers
    or booleans, each at most 256 bytes) when the raw result has them, so a
    caller can reconcile an operation that may already have taken effect.
-8. **Return:** `{:ok, %{cassette, operation_id, source, result}}`, or the executor's
-   `{:error, error}` passed through after it validates.
+8. **Return:** `{:ok, %{cassette, operation_id, source, result}}`, or, for
+   the executor's own valid error,
+   `{:error, %{cassette, operation_id, source, operation_error: error}}` with
+   `error` unchanged. Callers match `%Tama.Dex.Error{}` first. An operation
+   error always means the operation ran.
 
 `Tama.Dex.Error` has `kind`, `dispatched` (boolean), a bounded `message` and
 optional bounded `details`. Only `execute/5` returns it. `search/3` and
@@ -329,7 +357,8 @@ with a `kind` and `dispatched`.
   not run.
 - **`dispatched: true`:** `dispatch_failed` and `invalid_output`. The
   operation may have taken effect. The message says so, and callers must
-  reconcile, never retry blindly. Inputs and results are never logged, stored or sent in telemetry.
+  reconcile, never retry blindly. Inputs and results are never logged,
+  stored or sent in telemetry.
 
 ### 7. MCP tool definitions
 
@@ -341,10 +370,18 @@ with a `kind` and `dispatched`.
 - **`execute` input:** `{cassette, operation_id, input}`, all required. The
   agent copies `cassette` and `operation_id` from a search result.
 - **Not ready:** both handlers return a `not_ready` error object while the
-  index has nothing committed. The output is either a result
-  object or an `error` object.
-- **Handlers:** `handle_search/3` and `handle_execute/4` take the caller's
-  verified scopes from `caller` and return JSON-safe maps.
+  index has nothing committed.
+- **`search` output** is `{results, truncated}` or a tama-dex error object.
+- **`execute` output** is one of:
+  - a result: `{cassette, operation_id, source, result}`;
+  - an operation error, the executor's own valid error:
+    `{cassette, operation_id, source, operation_error, dispatched: true}`;
+  - a tama-dex error: `{error: {kind, dispatched, message, details?}}`.
+- **Handlers:** `handle_search/3` and `handle_execute/4` take a `caller`:
+  any map or struct with a `scopes` field holding the verified scope list,
+  such as `TamaMCP.Context`, so tama-dex needs no tama_mcp dependency. The
+  whole caller becomes `call.context`. A caller without a scope list raises
+  `ArgumentError`. Handlers return JSON-safe maps.
 - **Hosts:** with TamaMCP, a host declares two tool modules using
   `raw_input_schema` and `raw_output_schema` from these definitions, and calls
   the handlers from `call/2`. Each tool's own scope is only an outer gate.
@@ -415,11 +452,13 @@ imports. The user's target flow:
   under the manifest name or `as:`.
   - **Copy mode** is used only when the host passed a matching `sha256` pin
     and the index schema version matches. Rows are copied from the attached
-    read-only cassette, with the `cassette` column set to the installed name,
-    and the compiled schemas are rebuilt.
-  - **Rebuild mode** is used otherwise: without a pin, with a schema mismatch,
-    or with a cassette from another tama-dex version. Each embedded document
-    is loaded as `load/3` would.
+    read-only cassette, with the `cassette` column set to the installed name.
+    `operations.id` is shared across the whole index, so copied rows get new
+    IDs, and their FTS rows are inserted under those IDs.
+  - **Rebuild mode** is used otherwise: without a pin, or with a different
+    index schema version. Each embedded document is loaded as `load/3` would.
+    A different tama-dex version alone never forces a rebuild, because the
+    index schema version covers how rows are derived (Decision 4).
   - Importing the same content digest again reports `changed: false` and
     writes nothing.
   - The result reports the cassette, version, mode, `changed` and its
@@ -442,19 +481,29 @@ deadline. Search must never block or fail VM startup; the index is gateway
 readiness that may lag runtime readiness.
 
 - **Deadlines:** `load/3` and `import/3` accept `timeout:` (milliseconds).
-  Work runs in the index process inside the source transaction. When the
+  Work runs in the index's writer process, inside one transaction. When the
   deadline passes, the transaction is rolled back, the previous entries stay
-  in place, and the call returns `{:error, :deadline}`.
-- **Background import:** `import(index, path, async: true, ...)` returns `:ok`
-  once the cassette has been checked for size and file SHA-256, and imports in
-  the index process.
-  - `Tama.Dex.Index.status/1` reports `:empty`, `{:importing, %{cassette,
-    done: n, total: m}}`, `:ready` or `{:failed, reason}`, and emits
-    `[:tama_dex, :index, :status]` on each change.
+  in place, and the call returns `{:error, :deadline}`. Without `timeout:`,
+  the call waits until the work finishes: tama-dex never applies a default
+  call timeout such as `GenServer.call/2`'s 5 seconds.
+- **Background import:** `import(index, path, async: true, ...)` returns
+  `{:ok, ref}` once the cassette has been checked for size and file SHA-256,
+  and imports in the index's writer. When it finishes, the calling process
+  receives `{:tama_dex_import, ref, result}`, where `result` is what a
+  synchronous import would have returned.
+  - `Tama.Dex.Index.status/1` reports the index's readiness as a whole, and
+    emits `[:tama_dex, :index, :status]` on each change:
+    - `:ready` whenever at least one cassette is committed, even while other
+      imports run or after one has failed;
+    - otherwise `{:importing, %{cassette, done: n, total: m}}` while a load
+      or import runs;
+    - otherwise `{:failed, reason}` if the last attempt failed;
+    - otherwise `:empty`.
   - `Tama.Dex.cassettes/1` reports each cassette's own status, so a host that
     imports several cassettes can tell when all of them are installed. `:ready`
     from `status/1` means at least one cassette is committed, not all of them.
-  - A host can await an import's result or poll.
+  - A host can wait for the `{:tama_dex_import, ref, result}` message, or
+    poll `cassettes/1`.
 - **Not-ready behaviour:** `search/3` and `describe/4` return
   `{:error, :not_ready}`, and `execute/5` returns a `not_ready` error with
   `dispatched: false`, only while the index has no committed cassette and an
@@ -481,9 +530,9 @@ On 2026-11-12 the user chose an Elixir behaviour for the calling side.
   a module without `execute/2`, is `no_executor` before dispatch.
 - **Who implements it:** host adapter modules. A producer's run function
   needs host-only arguments (for example the host's authorization module and
-  the verified caller), so the adapter is host glue. Producers keep no compile-time or
-  runtime dependency on tama_dex: they publish documents as data and their
-  own run functions.
+  the verified caller), so the adapter is host glue. Producers keep no
+  compile-time or runtime dependency on tama_dex: they publish documents as
+  data and their own run functions.
 - **Indexing stays a data contract.** The `tama-operations/1` document is the
   ingestion standard. A behaviour for producing documents would add nothing
   the validator doesn't check, and would make producers compile against

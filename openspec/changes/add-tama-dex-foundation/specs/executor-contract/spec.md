@@ -8,11 +8,13 @@ tama-dex SHALL define the `Tama.Dex.Executor` behaviour as the only way
 `execute` hands a validated call to a host.
 
 - It SHALL have one callback, `execute(call, input)`, returning `{:ok, map}`
-  or `{:error, map}`.
+  or `{:error, map}`. Any other return value, or a map that can't be encoded
+  as JSON, is reported as `invalid_output`.
 - `call` SHALL be a `%Tama.Dex.Call{}` with `cassette`, `source`,
   `operation_id`, `scopes`, `context` and `opts`.
 - `scopes` SHALL be the same verified scopes tama-dex checked for the call,
-  so the executor re-checks against exactly what tama-dex saw.
+  so the executor re-checks against exactly what tama-dex saw. tama-dex SHALL
+  pass the list as the caller gave it: not sorted, deduplicated or filtered.
 - `context` SHALL be the host term passed to `execute` (for the MCP handler,
   the caller), and `opts` the options given at registration.
 - Input SHALL be passed already validated against the operation's input
@@ -20,8 +22,8 @@ tama-dex SHALL define the `Tama.Dex.Executor` behaviour as the only way
 
 #### Scenario: Executor receives the checked scopes
 
-- **WHEN** a caller holding `incus.read` and `incus.delete` executes `incus_instance_delete` in the `opsmaru_incus` cassette
-- **THEN** the executor's `call.scopes` is exactly `["incus.delete", "incus.read"]` as verified, with cassette `opsmaru_incus`, source `opsmaru_incus` and operation ID `incus_instance_delete`
+- **WHEN** a caller holding `["incus.read", "incus.delete"]` executes `incus_instance_delete` in the `opsmaru_incus` cassette
+- **THEN** the executor's `call.scopes` is exactly `["incus.read", "incus.delete"]`, in the order given, with cassette `opsmaru_incus`, source `opsmaru_incus` and operation ID `incus_instance_delete`
 
 ### Requirement: Executor registration
 

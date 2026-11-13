@@ -54,6 +54,15 @@ naming conventions only. tama-dex never makes HTTP calls to them.
 | `x-tama-identity` | MAY list up to 8 unique top-level property names declared by the `"200"` or `"default"` schema, for example `operation_id` or `status`. When a dispatched result fails validation, tama-dex copies those properties' string, integer or boolean values (each at most 256 bytes) into its `invalid_output` error, so callers can reconcile a call that may already have taken effect. |
 | Other `x-<prefix>-*` | Kept as opaque metadata (at most 16 KiB per operation) and returned with full operation detail, for example `x-opsmaru-requires`. |
 
+Where these rules refer to a schema's top-level `type`, `properties` or
+`required`, or to a property's type, they mean that schema's own keywords. A
+schema that is only a `$ref` into `#/components/schemas/`, optionally with
+annotations such as `title` or `description`, is read through to its target.
+Keywords inside `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else` or
+`$defs` are never consulted. So an input schema that declares its properties
+only inside `allOf` has no top-level properties, and can't name a
+confirmation field.
+
 Each request or response schema MUST be at most 256 KiB once serialized.
 
 ## Execution semantics

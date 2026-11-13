@@ -13,8 +13,8 @@
    for a cassette whose first import is still running;
 2. an executor is registered for the operation's source (`no_executor`
    otherwise);
-3. the input is a map of at most 1 MiB once encoded (`invalid_input`
-   otherwise);
+3. the input is a JSON object, a map with string keys and JSON values, of
+   at most 1 MiB once encoded (`invalid_input` otherwise);
 4. the confirmation field, when the operation declares one, is present and
    non-empty (`confirmation_required`, with the field and description,
    otherwise);
@@ -81,12 +81,15 @@ capability, as `module.execute(call, input)`.
 #### Scenario: Executor rejects
 
 - **WHEN** the executor returns `{:error, error}` matching the declared `default` schema
-- **THEN** execute returns that error unchanged
+- **THEN** execute returns `{:error, %{cassette, operation_id, source, operation_error: error}}`, with `error` unchanged
 
 ### Requirement: Result validation
 
 - A `{:ok, result}` SHALL match the operation's `200` schema.
 - An `{:error, error}` SHALL match its `default` schema when one is declared.
+- The executor SHALL return `{:ok, map}` or `{:error, map}`, and the map
+  SHALL encode as JSON, whether or not a `default` schema is declared. Any
+  other return value SHALL return `invalid_output`.
 - A mismatch SHALL return `invalid_output`, without any of the result's
   content except the values of the operation's `x-tama-identity` properties
   that are top-level strings, integers or booleans of at most 256 bytes.
@@ -97,6 +100,11 @@ capability, as `module.execute(call, input)`.
 - **WHEN** an executor returns a success map that violates the `200` schema
 - **THEN** execute returns `invalid_output` with `dispatched: true` and the declared identity values (for example `operation_id`), and the rest of the map is neither returned nor logged
 
+#### Scenario: Unexpected return value
+
+- **WHEN** an executor returns `:ok`, `{:ok, "done"}` or a map holding a PID
+- **THEN** execute returns `invalid_output` with `dispatched: true`
+
 ### Requirement: Dispatch status in errors
 
 Every error tama-dex produces SHALL carry `dispatched`.
@@ -106,7 +114,10 @@ Every error tama-dex produces SHALL carry `dispatched`.
 - `dispatch_failed` and `invalid_output` SHALL carry `dispatched: true`, with
   a message stating that the operation may have taken effect and must be
   reconciled rather than retried.
-- An executor's own valid `{:error, error}` SHALL be passed through unchanged.
+- An executor's own valid `{:error, error}` SHALL be returned as
+  `{:error, %{cassette, operation_id, source, operation_error: error}}`, with
+  `error` unchanged. It is distinct from `%Tama.Dex.Error{}`, and always
+  means the operation ran.
 
 #### Scenario: Caller distinguishes run from not run
 

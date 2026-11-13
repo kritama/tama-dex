@@ -53,6 +53,11 @@ Each operation SHALL be the single `post` operation of path
   property names declared by the `200` or `default` schema.
 - Unknown `x-tama-*` keys MUST be rejected. Other `x-<prefix>-*` extensions
   SHALL be kept as opaque metadata of at most 16 KiB per operation.
+- A schema's top-level `type`, `properties` and `required`, and a property's
+  type, SHALL be read from that schema's own keywords, after following a
+  schema that is only a `$ref` (plus annotations) to its target in
+  `#/components/schemas/`. Keywords inside `allOf`, `anyOf`, `oneOf`, `not`,
+  `if`/`then`/`else` and `$defs` SHALL NOT be consulted.
 
 #### Scenario: Path and identifier disagree
 
@@ -62,6 +67,16 @@ Each operation SHALL be the single `post` operation of path
 #### Scenario: Confirmation names a missing field
 
 - **WHEN** `x-tama-confirmation.field` is not a required string property of the input schema
+- **THEN** validation fails with an `invalid_confirmation` issue
+
+#### Scenario: Input schema by reference
+
+- **WHEN** the request body schema is `{"$ref": "#/components/schemas/DeleteImage"}`, and that component is an object schema with a required string property `confirm`
+- **THEN** the object-schema and confirmation rules pass for `confirm`
+
+#### Scenario: Properties only inside a composition
+
+- **WHEN** an input schema declares `confirm` only inside `allOf`, and the operation names `confirm` as its confirmation field
 - **THEN** validation fails with an `invalid_confirmation` issue
 
 #### Scenario: Producer extension preserved
@@ -96,7 +111,7 @@ operations. Each request or response schema MUST be at most 256 KiB.
 #### Scenario: Several defects
 
 - **WHEN** a document has a duplicate `operationId`, a missing summary and an oversized schema
-- **THEN** all three issues are returned together, with their pointers
+- **THEN** an issue for each of the three is returned together, with their pointers, alongside any issue they imply (a duplicate `operationId` also breaks the path-suffix rule)
 
 #### Scenario: Oversized document
 

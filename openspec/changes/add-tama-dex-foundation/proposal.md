@@ -4,9 +4,9 @@
 
 Hosts that expose operations to agents are collecting them from several
 sources. Macus serves the 32 shared Incus operations from `opsmaru_incus`
-plus its own runtime operations. Central Opsmaru and Tama
-will do the same. Exposing one MCP tool per operation floods `tools/list`. It
-also forces each MCP tool scope to stand in for per-operation authorization.
+plus its own runtime operations. Central Opsmaru and Tama will do the same.
+Exposing one MCP tool per operation floods `tools/list`. It also forces each
+MCP tool scope to stand in for per-operation authorization.
 And each source invents its own description format.
 
 On 2026-11-04 the user chose an index-and-search design. tama-dex indexes the
@@ -98,7 +98,10 @@ format. Macus has already rewritten its MCP spec around `search`/`execute`
 - `opsmaru_incus` needs to publish its operations as `tama-operations/1`
   documents (planned for 0.2.0). That is a separate change in that
   repository, and it adds no dependency on tama-dex.
+- `tama_mcp` 0.2.0 requires jsonschex `~> 0.10.0`, while tama-dex uses the
+  latest, `~> 0.11.2`. A tama_mcp release that moves to `~> 0.11.2` is needed
+  before a host can depend on both. That is a separate change in tama-mcp.
 - Macus imports the bundled `opsmaru_incus` cassette and loads its own runtime
-  document into a local `macus` cassette at startup, registers its executors, and backs its `search`/`execute` MCP tools
-  with these handlers. That unblocks Macus search task 7.6 once tama-dex is
-  released.
+  document into a local `macus` cassette at startup, registers its executors,
+  and backs its `search`/`execute` MCP tools with these handlers. That
+  unblocks Macus search task 7.6 once tama-dex is released.

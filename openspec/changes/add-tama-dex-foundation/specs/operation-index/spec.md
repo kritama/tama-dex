@@ -88,10 +88,14 @@ install it as one source of the local cassette named by its required
 - `Tama.Dex.load/3` and `Tama.Dex.import/3` SHALL accept a `timeout`. On expiry
   they SHALL roll back the source transaction, keep the previous entries and
   return `{:error, :deadline}`.
-- `import/3` with `async: true` SHALL return after the size and SHA-256
-  checks, and finish in the index process.
-- `Tama.Dex.Index.status/1` SHALL report `:empty`, importing progress, `:ready`
-  or a failure. `:ready` SHALL mean at least one cassette is committed.
+- Without a `timeout`, they SHALL wait until the work finishes, and MUST NOT
+  fail on a default call timeout.
+- `import/3` with `async: true` SHALL return `{:ok, ref}` after the size and
+  SHA-256 checks, finish in the index's writer, and then send the caller
+  `{:tama_dex_import, ref, result}`.
+- `Tama.Dex.Index.status/1` SHALL report `:ready` whenever at least one
+  cassette is committed. Otherwise it SHALL report importing progress while a
+  load or import runs, a failure if the last attempt failed, or `:empty`.
 - `Tama.Dex.cassettes/1` SHALL report each cassette's own status.
 - While no cassette has been committed and indexing is in progress, `search`
   and `describe` SHALL return `{:error, :not_ready}`, and `execute` SHALL
@@ -122,6 +126,16 @@ install it as one source of the local cassette named by its required
 - **WHEN** a host imports `opsmaru_incus` and then `macus` in the background, and a caller searches after only `opsmaru_incus` has committed
 - **THEN** the search returns `opsmaru_incus` results, `cassettes/1` reports `macus` as importing, and executing a `macus` operation returns `not_ready`
 
+#### Scenario: Waiting for a background import
+
+- **WHEN** a host calls `import` with `async: true` and receives `{:ok, ref}`
+- **THEN** it later receives `{:tama_dex_import, ref, result}`, where `result` is what a synchronous import would have returned
+
+#### Scenario: Status with one cassette failed
+
+- **WHEN** `opsmaru_incus` has committed and a later `macus` import fails
+- **THEN** `status/1` reports `:ready`, and `cassettes/1` reports the `macus` failure
+
 #### Scenario: Reload keeps serving
 
 - **WHEN** a cassette in a file-backed index is re-imported in the background while callers search it
@@ -136,7 +150,9 @@ install it as one source of the local cassette named by its required
 
 The SQLite database SHALL be treated as derived data.
 
-- It SHALL record its schema version.
+- It SHALL record its schema version. The version SHALL cover both the table
+  definitions and how rows are derived from documents, so a change to either
+  uses a new version.
 - On open, a database with a missing or different schema version SHALL be
   recreated empty. That emits a recreation telemetry event, after which the
   host reloads its documents.
@@ -156,4 +172,4 @@ process and of the host.
 #### Scenario: Host restart
 
 - **WHEN** a host restarts and opens the same database path without loading documents
-- **THEN** previously installed cassettes are searchable, and the compiled schemas are rebuilt from the stored schemas before the first execute
+- **THEN** previously installed cassettes are searchable and executable without reloading, opening the index compiles no schema, and each operation's schemas are compiled from the stored schemas on its first execute

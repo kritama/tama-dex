@@ -28,7 +28,9 @@ Search SHALL use SQLite FTS5 over each operation's ID, summary, tags,
 description and input property names and descriptions.
 
 - Caller text of at most 512 bytes SHALL be reduced to letter-and-digit terms,
-  each quoted, given a prefix wildcard and joined with AND.
+  each quoted, given a prefix wildcard and joined with AND. Longer text SHALL
+  be rejected with an argument error.
+- Text with no letter-or-digit term SHALL be treated as an empty query.
 - Caller text MUST NOT reach SQLite as FTS5 query syntax.
 - Search SHALL cover every cassette in the index in one ranking, unless the
   caller filters by `cassette`.
@@ -42,6 +44,11 @@ description and input property names and descriptions.
 
 - **WHEN** a caller searches for `instance" OR NEAR(* -delete`
 - **THEN** the search succeeds, treating the text only as the terms `instance`, `or`, `near` and `delete`
+
+#### Scenario: Punctuation-only query
+
+- **WHEN** a caller searches for `"*-:()`
+- **THEN** the search lists visible operations as for an empty query
 
 #### Scenario: Search across cassettes
 
@@ -60,7 +67,8 @@ description and input property names and descriptions.
 
 ### Requirement: Bounded results
 
-- `limit` SHALL default to 5 and MUST NOT exceed 20.
+- `limit` SHALL default to 5. A limit outside 1–20 SHALL be rejected with an
+  argument error.
 - Each result SHALL include the cassette and its version, the operation ID,
   source, summary, description
   (truncated to 1024 characters with a flag), tags, scopes, the destructive and
