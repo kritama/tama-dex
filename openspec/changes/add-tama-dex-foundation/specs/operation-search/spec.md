@@ -8,14 +8,20 @@
 
 - It SHALL return only operations whose every `x-tama-scopes` entry is among
   those scopes.
-- Hidden operations MUST NOT affect result counts, truncation flags or error
-  messages.
+- Hidden operations MUST NOT affect result counts, truncation flags, ranking
+  or error messages. Ranking statistics SHALL be computed over the operations
+  the search could return, never the whole index.
 - Deprecated operations SHALL be excluded unless requested.
 
 #### Scenario: Caller without delete scope
 
 - **WHEN** a caller holding only `incus.read` searches for `delete`
 - **THEN** no `incus.delete` operation is returned, and the response does not reveal that any exists
+
+#### Scenario: Hidden operations and ranking
+
+- **WHEN** a caller searches an index holding operations it can't see
+- **THEN** its results, and their order, are the same as from an index holding only the operations it can see
 
 #### Scenario: Scopes not supplied
 

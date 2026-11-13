@@ -25,8 +25,9 @@ The project follows Semantic Versioning and uses Conventional Commits.
   a local cassette in one transaction, and is a no-op for an unchanged
   digest.
 - Added `Tama.Dex.search/3` and `describe/4`: scope-filtered FTS5 search
-  across every cassette in one bm25 ranking, with caller text reduced to
-  quoted prefix terms, an exact `operationId` boosted first, cassette,
+  across every cassette in one BM25 ranking, with caller text reduced to
+  quoted prefix terms, an exact `operationId` boosted first, BM25
+  statistics taken only from the operations the caller could see, cassette,
   source, tag, deprecated and destructive filters, and responses kept within
   64 KiB by dropping the lowest-ranked input schemas first.
 - Added `Tama.Dex.execute/5`, the `Tama.Dex.Executor` behaviour, and the
@@ -47,7 +48,8 @@ The project follows Semantic Versioning and uses Conventional Commits.
   build `tama-cassette/1` files with a manifest, canonical documents and a
   reproducible content digest; `Tama.Dex.Cassette.verify/2` checks an
   untrusted file's size, SHA-256, header, schema objects, integrity,
-  document digests and profile validity; and `Tama.Dex.import/3` installs a
+  document digests and profile validity, all against one in-memory
+  snapshot of the file; and `Tama.Dex.import/3` installs a
   cassette under its own name or `as:`, copying prebuilt rows only under a
   matching SHA-256 pin and rebuilding from the documents otherwise.
 - Added startup-bounded indexing: a `timeout` for `load/3` and `import/3`

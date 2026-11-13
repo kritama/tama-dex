@@ -3,13 +3,16 @@ defmodule Tama.Dex.Cassette.Reader do
 
   # Verifies cassette files, which are untrusted input.
   #
-  # The size is checked before anything is read, then the file SHA-256 and
-  # the SQLite header before SQLite opens it. It is opened read-only with
-  # extension loading and schema functions off, and its `sqlite_master` is
-  # compared against the expected objects before any row is read. Every
-  # embedded document is then re-digested and validated against the profile.
-  # The operation rows are never trusted here: import copies them only under
-  # a matching host pin.
+  # The size is checked before the file is opened. The file is then read
+  # once, bounded, into an in-memory snapshot, and every later check reads
+  # that snapshot: the SHA-256 and the SQLite header, then SQLite itself,
+  # which deserializes the snapshot into a private in-memory database. So a
+  # file replaced after it was hashed can't pass the pin with other rows.
+  # SQLite runs with extension loading and schema functions off and queries
+  # only, and its `sqlite_master` is compared against the expected objects
+  # before any row is read. Every embedded document is then re-digested and
+  # validated against the profile. The operation rows are never trusted
+  # here: import copies them only under a matching host pin.
 
   alias Exqlite.Sqlite3
   alias Tama.Dex.Cassette.Format
@@ -49,8 +52,10 @@ defmodule Tama.Dex.Cassette.Reader do
   """
   @spec precheck(String.t(), keyword()) :: {:ok, map()} | {:error, reason()}
   def precheck(path, opts) do
-    with {:ok, sha256} <- check_file(path, opts) do
-      with_connection(path, &prechecked(&1, sha256), fn _conn, checked -> {:ok, checked} end)
+    with {:ok, snapshot} <- read_file(path, opts) do
+      with_connection(snapshot, &prechecked(&1, snapshot.sha256), fn _conn, checked ->
+        {:ok, checked}
+      end)
     end
   end
 
@@ -67,16 +72,16 @@ defmodule Tama.Dex.Cassette.Reader do
 
   @doc """
   Verifies a cassette as `verify/2` does, then calls `fun.(conn, verified)`
-  with the cassette's read-only connection still open, so its rows are read
-  from the file that was verified. Returns `fun`'s result, or
+  with the cassette's query-only connection still open, so its rows are read
+  from the snapshot that was verified. Returns `fun`'s result, or
   `{:error, reason}`.
   """
   @spec with_verified(String.t(), keyword(), (SQL.conn(), map() -> result)) ::
           result | {:error, reason()}
         when result: term()
   def with_verified(path, opts, fun) do
-    with {:ok, sha256} <- check_file(path, opts) do
-      with_connection(path, &verified(&1, sha256, opts), fun)
+    with {:ok, snapshot} <- read_file(path, opts) do
+      with_connection(snapshot, &verified(&1, snapshot.sha256, opts), fun)
     end
   end
 
@@ -100,14 +105,27 @@ defmodule Tama.Dex.Cassette.Reader do
 
   # File checks
 
-  defp check_file(path, opts) do
+  defp read_file(path, opts) do
     max = min(Keyword.get(opts, :max_bytes, @max_bytes), @max_bytes)
 
     with :ok <- check_size(path, max),
-         {:ok, sha256} <- sha256(path),
+         {:ok, bytes} <- read_bounded(path, max),
+         sha256 = Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
          :ok <- check_pin(sha256, Keyword.get(opts, :sha256)),
-         :ok <- check_header(path) do
-      {:ok, sha256}
+         :ok <- check_header(bytes) do
+      {:ok, %{bytes: bytes, sha256: sha256}}
+    end
+  end
+
+  # Reads at most one byte past `max`, so a file that grew after its size
+  # was checked is still refused without reading it all.
+  defp read_bounded(path, max) do
+    case File.open(path, [:read, :binary, :raw], &:file.read(&1, max + 1)) do
+      {:ok, {:ok, bytes}} when byte_size(bytes) <= max -> {:ok, bytes}
+      {:ok, {:ok, _bytes}} -> {:error, :too_large}
+      {:ok, :eof} -> {:ok, <<>>}
+      {:ok, {:error, posix}} -> {:error, {:file, posix}}
+      {:error, posix} -> {:error, {:file, posix}}
     end
   end
 
@@ -140,23 +158,23 @@ defmodule Tama.Dex.Cassette.Reader do
   defp check_pin(sha256, sha256), do: :ok
   defp check_pin(_sha256, _pin), do: {:error, :sha256_mismatch}
 
-  # A SQLite file in rollback-journal mode: a cassette is never in WAL mode,
-  # so opening it read-only needs no shared-memory file.
-  defp check_header(path) do
-    case File.open(path, [:read, :binary, :raw], &IO.binread(&1, 100)) do
-      {:ok, <<"SQLite format 3", 0, _page::binary-size(2), 1, 1, _rest::binary-size(80)>>} -> :ok
-      {:ok, _other} -> {:error, :not_a_cassette}
-      {:error, posix} -> {:error, {:file, posix}}
-    end
-  end
+  # A SQLite file in rollback-journal mode, as `Tama.Dex.Cassette.build/3`
+  # writes it. A cassette is never in WAL mode.
+  defp check_header(
+         <<"SQLite format 3", 0, _page::binary-size(2), 1, 1, _rest::binary-size(80),
+           _pages::binary>>
+       ),
+       do: :ok
+
+  defp check_header(_bytes), do: {:error, :not_a_cassette}
 
   # Connection
 
   # Runs `check` on the open cassette, treating SQLite errors as a corrupt
   # file, then `then` with the checked result. Errors from `then` are its
   # own.
-  defp with_connection(path, check, then) do
-    case open(path) do
+  defp with_connection(snapshot, check, then) do
+    case open(snapshot.bytes) do
       {:ok, conn} ->
         try do
           case checked(check, conn) do
@@ -178,15 +196,19 @@ defmodule Tama.Dex.Cassette.Reader do
     SQL.Error -> {:error, :not_a_cassette}
   end
 
-  defp open(path) do
-    case Sqlite3.open(path, mode: :readonly) do
-      {:ok, conn} ->
-        _result = Sqlite3.enable_load_extension(conn, false)
+  # A private in-memory database holding a copy of the snapshot.
+  defp open(bytes) do
+    {:ok, conn} = Sqlite3.open(":memory:")
+    _result = Sqlite3.enable_load_extension(conn, false)
+
+    case Sqlite3.deserialize(conn, "main", bytes) do
+      :ok ->
         SQL.execute!(conn, "PRAGMA trusted_schema = OFF")
         SQL.execute!(conn, "PRAGMA query_only = ON")
         {:ok, conn}
 
       {:error, _reason} ->
+        Sqlite3.close(conn)
         :error
     end
   end

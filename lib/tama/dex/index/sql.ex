@@ -78,6 +78,21 @@ defmodule Tama.Dex.Index.SQL do
     end
   end
 
+  @doc """
+  Runs `fun` in one read transaction, so every query it makes sees the same
+  committed state, and returns its result.
+  """
+  @spec read_transaction(conn(), (-> result)) :: result when result: term()
+  def read_transaction(conn, fun) do
+    execute!(conn, "BEGIN")
+
+    try do
+      fun.()
+    after
+      rollback(conn)
+    end
+  end
+
   defp rollback(conn) do
     case Sqlite3.transaction_status(conn) do
       {:ok, :transaction} -> Sqlite3.execute(conn, "ROLLBACK")

@@ -17,6 +17,8 @@ files.
   digest.
 - It MUST NOT store wall-clock time.
 - It SHALL be written to a temporary file and renamed into place.
+- It SHALL reject an empty document list, and a file larger than
+  verification accepts (64 MiB), without replacing the destination.
 - The task SHALL print the content digest and the file's SHA-256.
 
 #### Scenario: Producer CI build
@@ -34,8 +36,11 @@ files.
 `Tama.Dex.Cassette.verify/2` SHALL treat a cassette as untrusted input. It
 SHALL:
 - reject files over 64 MiB before opening;
+- read the file once into an in-memory snapshot, and run every later check
+  and any row copy against that snapshot, never the path again;
 - check the file's SHA-256 when the host gives one;
-- open the file read-only with extension loading disabled;
+- open the snapshot as a private in-memory database, with extension loading
+  disabled and queries only;
 - require `sqlite_master` to contain exactly the expected tables, indexes and
   FTS shadow tables, with no triggers or views;
 - check the manifest format and cassette name;
@@ -46,6 +51,11 @@ SHALL:
 
 - **WHEN** an embedded document no longer matches its recorded digest
 - **THEN** verification fails, and nothing is imported
+
+#### Scenario: File replaced during import
+
+- **WHEN** a pinned cassette file is replaced on disk after it was read
+- **THEN** verification and any copied rows still come from the snapshot whose SHA-256 matched the pin
 
 #### Scenario: Trigger in cassette
 

@@ -94,6 +94,43 @@ defmodule Tama.Dex.SearchTest do
         assert search!(full, query, opts) == search!(partial, query, opts)
       end
     end
+
+    test "hidden operations never change how visible matches rank" do
+      # Visible alone, "alpha" and "beta" are equally common, so the two
+      # operations tie and order by ID. Hidden operations full of "beta" make
+      # "alpha" the rarer term, which would put b_alpha_op first if they
+      # counted.
+      summaries = %{"a_beta_op" => "alpha beta beta", "b_alpha_op" => "alpha alpha beta"}
+      visible = document("ranked", Map.keys(summaries), summary: &Map.fetch!(summaries, &1))
+
+      hidden =
+        "hidden"
+        |> document(Enum.map(1..10, &"hidden_op_#{&1}"), summary: fn _id -> "beta" end)
+        |> Map.update!("paths", fn paths ->
+          Map.new(paths, fn {path, item} ->
+            {path, put_in(item, ["post", "x-tama-scopes"], ["secret.read"])}
+          end)
+        end)
+
+      both = start_index!() |> load!(visible, "ranked") |> load!(hidden, "hidden")
+      alone = load!(start_index!(), visible, "ranked")
+
+      for query <- ["alpha beta", "beta alpha", "alpha", "beta", "op"], limit <- [1, 2] do
+        opts = [scopes: ["test.read"], limit: limit]
+        assert search!(both, query, opts) == search!(alone, query, opts), query
+      end
+
+      assert ids(search!(both, "alpha beta", scopes: ["test.read"])) == [
+               {"ranked", "a_beta_op"},
+               {"ranked", "b_alpha_op"}
+             ]
+
+      # A caller who can see the hidden operations gets the other order.
+      assert ids(search!(both, "alpha beta", scopes: ["test.read", "secret.read"])) == [
+               {"ranked", "b_alpha_op"},
+               {"ranked", "a_beta_op"}
+             ]
+    end
   end
 
   describe "query text" do
@@ -106,7 +143,8 @@ defmodule Tama.Dex.SearchTest do
                ~S|"instance"* AND "or"* AND "near"* AND "delete"*|
 
       assert Search.match_expression("Fingerprint fingerprint") == ~S|"fingerprint"*|
-      assert Search.match_expression("Größe 42") == ~S|"größe"* AND "42"*|
+      # Diacritics are folded, as FTS5's unicode61 tokenizer folds them.
+      assert Search.match_expression("Größe 42") == ~S|"große"* AND "42"*|
       assert Search.match_expression(~S|"*-:()|) == nil
       assert Search.match_expression("") == nil
     end

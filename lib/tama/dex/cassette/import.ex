@@ -6,8 +6,9 @@ defmodule Tama.Dex.Cassette.Import do
   #
   # The whole cassette is replaced in one transaction. Copy mode, used only
   # under a matching host pin and the same index schema version, copies the
-  # prebuilt rows through the read-only connection verification opened, so
-  # they come from the file that was verified, giving operations new IDs and
+  # prebuilt rows through the connection verification opened on its
+  # in-memory snapshot, so they come from the bytes that were hashed and
+  # verified, giving operations new IDs and
   # their FTS rows those IDs. Rebuild mode, used otherwise, writes each
   # verified document as a load would, so an unpinned cassette can't install
   # rows that differ from its documents.
@@ -22,12 +23,12 @@ defmodule Tama.Dex.Cassette.Import do
   @operation_columns """
   source, operation_id, summary, description, tags, scopes, destructive, deprecated,
   confirmation, bounds, identity, input_schema, input_schema_digest, success_schema,
-  success_schema_digest, error_schema, error_schema_digest, extensions
+  success_schema_digest, error_schema, error_schema_digest, extensions, token_count
   """
 
   @insert_operation """
   INSERT INTO operations (cassette, #{@operation_columns})
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   """
 
   @doc """

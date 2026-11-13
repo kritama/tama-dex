@@ -248,6 +248,7 @@ CREATE TABLE operations (id INTEGER PRIMARY KEY, cassette TEXT NOT NULL, source 
   input_schema TEXT NOT NULL, input_schema_digest TEXT NOT NULL,
   success_schema TEXT NOT NULL, success_schema_digest TEXT NOT NULL,
   error_schema TEXT, error_schema_digest TEXT, extensions TEXT,
+  token_count INTEGER NOT NULL CHECK (token_count >= 0),
   UNIQUE (cassette, operation_id),
   FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE);
 CREATE INDEX operations_source ON operations (cassette, source);
@@ -267,8 +268,11 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   Its rows are written and deleted alongside `operations`, sharing
   `operations.id` as the rowid. That avoids contentless FTS5 delete
   limitations.
-- Every cassette shares the one FTS table, so `bm25` ranks all cassettes'
-  operations together.
+- Every cassette shares the one FTS table, so one ranking covers all
+  cassettes' operations.
+- `token_count` is the operation's token count across its FTS columns, as
+  the `unicode61` tokenizer splits them. Search averages it over the
+  operations a search could return (Decision 5).
 - On open, a missing `meta` table means the database is created. A
   `schema_version` other than 1 means every table is dropped and recreated
   empty, a `{:recreated, old}` telemetry event fires, and the host reloads its
@@ -290,7 +294,18 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   order.
 - **Exact match:** an `operation_id` that matches exactly ranks first. If
   several cassettes have it, they are ordered by cassette name.
-- **Ranking:** `bm25(operations_fts, 10.0, 5.0, 3.0, 1.0, 1.0)`.
+- **Ranking:** Okapi BM25 as FTS5 computes it (k1 1.2, b 0.75, column
+  weights 10, 5, 3, 1, 1), but over the candidates only: the operations
+  passing the caller's scopes and filters. FTS5's own `bm25()` takes its
+  statistics from the whole table, so hidden operations would change which
+  terms count as rare and could reorder visible results. Instead, in one
+  read transaction, the search reads the candidates' count and mean
+  `token_count`, counts the candidates matching each term, and fetches the
+  matching candidates' FTS text. It scores them in Elixir, counting each
+  term's prefix matches per column after tokenizing as `unicode61` does
+  (case-folded, diacritics removed), then fetches the top `limit` rows in
+  full. A search matching all 1024 operations of a full document takes
+  tens of milliseconds.
 - **Filters:**
   - `scopes:` is required. An operation is visible only if all its scopes
     are in the caller's verified scopes.
@@ -465,8 +480,13 @@ imports. The user's target flow:
   dev/test dependency of the producer.
 - **Verify:** `Tama.Dex.Cassette.verify(path, sha256: pin)` treats the file as
   untrusted. It:
-  - checks the size limit (64 MiB) and, when given, the file SHA-256;
-  - opens the file read-only, with extension loading off;
+  - checks the size limit (64 MiB) before opening, then reads the file once
+    into memory. Every later check reads that snapshot, never the path
+    again, so a file replaced after it was hashed can't pass the pin with
+    other rows;
+  - checks the file SHA-256 when given;
+  - deserializes the snapshot into a private in-memory database, with
+    extension loading off and queries only;
   - requires `sqlite_master` to hold exactly the expected tables, indexes and
     FTS shadow tables, with no triggers or views;
   - checks the manifest format and cassette name;
@@ -479,8 +499,8 @@ imports. The user's target flow:
   under the manifest name or `as:`.
   - **Copy mode** is used only when the host passed a matching `sha256` pin
     and the index schema version matches. Rows are read through the
-    read-only connection verification opened, so they come from the file
-    that was verified, and written with the `cassette` column set to the
+    connection verification opened on its snapshot, so they come from the
+    bytes that were hashed and verified, and written with the `cassette` column set to the
     installed name. The cassette is never attached to the writer: an
     in-memory index's `memdb` VFS would open it empty, and an untrusted file
     stays off the writer connection. `operations.id` is shared across the
@@ -598,7 +618,8 @@ On 2026-11-12 the user chose an Elixir behaviour for the calling side.
 - **A tampered or malformed cassette:** a SHA-256 pin is required for copy
   mode. Otherwise the index is rebuilt from documents whose digests were
   verified. A strict check of `sqlite_master` rejects triggers and views, and
-  the cassette is opened read-only.
+  the cassette is read from an in-memory snapshot of the bytes that were
+  hashed.
 - **Agents addressing the wrong cassette:** `execute` requires the cassette
   and looks only there, so a call never silently runs another cassette's
   operation of the same name.

@@ -84,7 +84,9 @@ defmodule Tama.Dex.Cassette do
           | :content_digest_mismatch
 
   @type build_error ::
-          {:invalid_document, non_neg_integer(), [Profile.Issue.t()]}
+          :no_documents
+          | :too_large
+          | {:invalid_document, non_neg_integer(), [Profile.Issue.t()]}
           | {:duplicate_source, String.t()}
           | {:duplicate_operation, [%{source: String.t(), operation_ids: [String.t()]}]}
 
@@ -94,20 +96,25 @@ defmodule Tama.Dex.Cassette do
   Every document is validated first, and sources or operation IDs repeated
   within the cassette are rejected, before anything is written. The file is
   written to a temporary file in the same directory, compacted with
-  `VACUUM` and renamed into place, replacing any file at `path`.
+  `VACUUM` and renamed into place, replacing any file at `path`. A file
+  larger than `verify/2` accepts is discarded instead, leaving `path`
+  untouched.
 
   ## Options
 
   - `:name` (required): the cassette name, matching `^[a-z][a-z0-9_]{0,63}$`.
   - `:version` (required): the cassette version, at most 64 bytes, usually
     the producer's release version.
+  - `:max_bytes`: a lower size limit than the 64 MiB `verify/2` accepts.
 
   Returns `{:ok, %{path, cassette, version, digest, sha256, sources}}`,
   where `digest` is the content digest, `sha256` the file's SHA-256, and
   each source has `source` and `operations` (a count). Fails with
+  `{:error, :no_documents}` for an empty list,
   `{:error, {:invalid_document, position, issues}}` (position counts from
-  0), `{:error, {:duplicate_source, source}}` or
-  `{:error, {:duplicate_operation, conflicts}}`. Raises `ArgumentError` for
+  0), `{:error, {:duplicate_source, source}}`,
+  `{:error, {:duplicate_operation, conflicts}}`, or `{:error, :too_large}`
+  when the file would be over the size limit. Raises `ArgumentError` for
   a missing or invalid name, version or path.
   """
   @spec build([term()], Path.t(), keyword()) :: {:ok, map()} | {:error, build_error()}
@@ -115,11 +122,13 @@ defmodule Tama.Dex.Cassette do
     name = Tama.Dex.cassette!(Keyword.get(opts, :name))
     version = version!(Keyword.get(opts, :version))
     path = path!(path)
+    max = min(max_bytes!(opts), Reader.max_bytes())
 
-    with {:ok, validated} <- validate(documents),
+    with :ok <- non_empty(documents),
+         {:ok, validated} <- validate(documents),
          :ok <- unique_sources(validated),
          :ok <- unique_operations(validated) do
-      write(validated, path, name, version)
+      write(validated, path, name, version, max)
     end
   end
 
@@ -131,7 +140,10 @@ defmodule Tama.Dex.Cassette do
   objects (no triggers or views, and exactly the expected tables and
   indexes), the database's integrity, the manifest, every embedded
   document's digest and profile validity, and the content digest. The file
-  is opened read-only, with extension loading off.
+  is read once, into memory, and every check reads that copy, so a file
+  replaced during verification can't pass with other contents. SQLite opens
+  the copy as a private in-memory database, with extension loading off and
+  queries only.
 
   ## Options
 
@@ -208,6 +220,9 @@ defmodule Tama.Dex.Cassette do
 
   # Build
 
+  defp non_empty([]), do: {:error, :no_documents}
+  defp non_empty(_documents), do: :ok
+
   defp validate(documents) do
     documents
     |> Enum.with_index()
@@ -239,7 +254,7 @@ defmodule Tama.Dex.Cassette do
     end
   end
 
-  defp write(documents, path, name, version) do
+  defp write(documents, path, name, version, max) do
     documents = Enum.sort_by(documents, & &1.source)
 
     digest =
@@ -258,22 +273,26 @@ defmodule Tama.Dex.Cassette do
 
     try do
       write_file(temporary, documents, name, version, digest)
-      File.rename!(temporary, path)
+
+      if File.stat!(temporary).size > max do
+        {:error, :too_large}
+      else
+        File.rename!(temporary, path)
+        {:ok, sha256} = Reader.sha256(path)
+
+        {:ok,
+         %{
+           path: path,
+           cassette: name,
+           version: version,
+           digest: digest,
+           sha256: sha256,
+           sources: Enum.map(documents, &%{source: &1.source, operations: length(&1.operations)})
+         }}
+      end
     after
       File.rm(temporary)
     end
-
-    {:ok, sha256} = Reader.sha256(path)
-
-    {:ok,
-     %{
-       path: path,
-       cassette: name,
-       version: version,
-       digest: digest,
-       sha256: sha256,
-       sources: Enum.map(documents, &%{source: &1.source, operations: length(&1.operations)})
-     }}
   end
 
   defp write_file(temporary, documents, name, version, digest) do

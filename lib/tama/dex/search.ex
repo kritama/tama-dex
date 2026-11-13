@@ -5,8 +5,16 @@ defmodule Tama.Dex.Search do
   #
   # Caller text never reaches SQLite as FTS5 syntax: it is reduced to
   # letter-and-digit terms, each quoted with a prefix wildcard and joined
-  # with AND. Visibility is applied in SQL, so hidden operations never
-  # affect ranking, counts or flags.
+  # with AND. FTS5 decides which operations match. The visibility filter
+  # and the caller's other filters are applied in SQL, so hidden operations
+  # never affect counts or flags.
+  #
+  # Ranking is computed here rather than with FTS5's bm25(), whose
+  # statistics cover the whole table, hidden operations included. The same
+  # Okapi BM25 is computed over the candidates alone, the operations this
+  # search could return: their count, their mean token count and, for each
+  # term, how many of them match it. Term frequencies come from tokenizing
+  # the matched operations' text the way FTS5's unicode61 tokenizer does.
 
   alias Tama.Dex.Index.SQL
 
@@ -15,6 +23,12 @@ defmodule Tama.Dex.Search do
   @budget 64 * 1024
   @default_limit 5
   @max_limit 20
+
+  # Column weights, in FTS column order (operation_id, summary, tags,
+  # description, fields), and FTS5's BM25 parameters.
+  @weights [10.0, 5.0, 3.0, 1.0, 1.0]
+  @k1 1.2
+  @b 0.75
 
   @columns """
   o.cassette, c.version, o.operation_id, o.source, o.summary, o.description, o.tags,
@@ -114,16 +128,36 @@ defmodule Tama.Dex.Search do
     end
   end
 
-  defp terms(text) do
-    ~r/[\p{L}\p{N}]+/u
-    |> Regex.scan(String.downcase(text))
-    |> List.flatten()
-    |> Enum.uniq()
+  defp terms(text), do: text |> tokens() |> Enum.uniq()
+
+  @doc false
+  # The tokens FTS5's unicode61 tokenizer would produce: runs of letters and
+  # digits, case-folded, with diacritics removed.
+  @spec tokens(String.t()) :: [String.t()]
+  def tokens(text) do
+    folded =
+      text
+      |> :unicode.characters_to_nfd_binary()
+      |> String.replace(~r/\p{Mn}/u, "")
+      |> String.downcase()
+
+    ~r/[\p{L}\p{N}]+/u |> Regex.scan(folded) |> List.flatten()
   end
 
-  @doc "Runs a search on the read connection."
+  @doc false
+  # An operation's token count across its FTS columns, stored with it so
+  # ranking can average lengths over any set of operations.
+  @spec token_count([String.t()]) :: non_neg_integer()
+  def token_count(texts), do: Enum.sum_by(texts, &length(tokens(&1)))
+
+  @doc """
+  Runs a search on the read connection, in one read transaction so the
+  ranking statistics and the matches come from the same state.
+  """
   @spec search(SQL.conn(), map()) :: %{results: [map()], truncated: boolean()}
-  def search(conn, options) do
+  def search(conn, options), do: SQL.read_transaction(conn, fn -> run(conn, options) end)
+
+  defp run(conn, options) do
     {filters, filter_args} = filters(options)
 
     rows =
@@ -142,27 +176,116 @@ defmodule Tama.Dex.Search do
           )
 
         expression ->
-          SQL.query!(
-            conn,
-            """
-            SELECT #{@columns}
-            FROM operations_fts f
-            JOIN operations o ON o.id = f.rowid
-            JOIN cassettes c ON c.cassette = o.cassette
-            WHERE operations_fts MATCH ? AND #{filters}
-            ORDER BY o.operation_id = ? DESC,
-                     bm25(operations_fts, 10.0, 5.0, 3.0, 1.0, 1.0),
-                     o.cassette, o.operation_id
-            LIMIT ?
-            """,
-            [expression | filter_args] ++
-              [String.downcase(String.trim(options.text)), options.limit]
-          )
+          conn
+          |> ranked_ids(expression, {filters, filter_args}, options)
+          |> rows_by_id(conn)
       end
 
     rows
     |> Enum.map(&result(&1, options.include_schemas))
     |> fit()
+  end
+
+  # The IDs of the best `limit` matches: an exact operationId match first,
+  # then by score, then by cassette and operationId.
+  defp ranked_ids(conn, expression, {filters, args}, options) do
+    terms = terms(options.text)
+    exact = String.downcase(String.trim(options.text))
+
+    [[count, mean]] =
+      SQL.query!(
+        conn,
+        """
+        SELECT count(*), avg(o.token_count)
+        FROM operations o JOIN cassettes c ON c.cassette = o.cassette
+        WHERE #{filters}
+        """,
+        args
+      )
+
+    idfs = Enum.map(terms, &idf(count, matches(conn, ~s("#{&1}"*), filters, args)))
+    mean = max(mean || 0.0, 1.0)
+
+    conn
+    |> SQL.query!(
+      """
+      SELECT o.id, o.cassette, o.operation_id, o.token_count,
+             f.operation_id, f.summary, f.tags, f.description, f.fields
+      FROM operations_fts f
+      JOIN operations o ON o.id = f.rowid
+      JOIN cassettes c ON c.cassette = o.cassette
+      WHERE operations_fts MATCH ? AND #{filters}
+      """,
+      [expression | args]
+    )
+    |> Enum.map(fn [id, cassette, operation_id, length | texts] ->
+      score = score(terms, idfs, texts, length / mean)
+      {{if(operation_id == exact, do: 0, else: 1), -score, cassette, operation_id}, id}
+    end)
+    |> Enum.sort()
+    |> Enum.take(options.limit)
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp matches(conn, expression, filters, args) do
+    [[count]] =
+      SQL.query!(
+        conn,
+        """
+        SELECT count(*)
+        FROM operations_fts f
+        JOIN operations o ON o.id = f.rowid
+        JOIN cassettes c ON c.cassette = o.cassette
+        WHERE operations_fts MATCH ? AND #{filters}
+        """,
+        [expression | args]
+      )
+
+    count
+  end
+
+  # FTS5's inverse document frequency, floored just above zero.
+  defp idf(count, matches) do
+    ratio = (count - matches + 0.5) / (matches + 0.5)
+    if ratio > 1.0, do: :math.log(ratio), else: 1.0e-6
+  end
+
+  # FTS5's BM25: per term, the column-weighted frequency, saturated and
+  # normalized by the operation's length relative to the mean.
+  defp score(terms, idfs, texts, relative_length) do
+    columns = Enum.map(texts, &tokens/1)
+    norm = @k1 * (1 - @b + @b * relative_length)
+
+    terms
+    |> Enum.zip(idfs)
+    |> Enum.reduce(0.0, fn {term, idf}, score ->
+      frequency =
+        columns
+        |> Enum.zip(@weights)
+        |> Enum.reduce(0.0, fn {tokens, weight}, sum ->
+          sum + weight * Enum.count(tokens, &String.starts_with?(&1, term))
+        end)
+
+      score + idf * frequency * (@k1 + 1) / (frequency + norm)
+    end)
+  end
+
+  defp rows_by_id([], _conn), do: []
+
+  defp rows_by_id(ids, conn) do
+    rows =
+      SQL.query!(
+        conn,
+        """
+        SELECT o.id, #{@columns}
+        FROM operations o JOIN cassettes c ON c.cassette = o.cassette
+        WHERE o.id IN (SELECT value FROM json_each(?))
+        """,
+        [Jason.encode!(ids)]
+      )
+      |> Map.new(fn [id | row] -> {id, row} end)
+
+    Enum.map(ids, &Map.fetch!(rows, &1))
   end
 
   defp filters(options) do

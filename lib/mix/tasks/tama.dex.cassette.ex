@@ -119,6 +119,9 @@ defmodule Mix.Tasks.Tama.Dex.Cassette do
 
   defp describe({:duplicate_source, source}, _inputs), do: "source #{source} is given twice"
 
+  defp describe(:too_large, _inputs),
+    do: "the cassette would be larger than verification accepts (64 MiB)"
+
   defp describe({:duplicate_operation, conflicts}, _inputs) do
     "operation IDs repeat across sources: " <>
       Enum.map_join(conflicts, "; ", &"#{&1.source} #{Enum.join(&1.operation_ids, ", ")}")

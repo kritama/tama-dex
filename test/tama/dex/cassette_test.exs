@@ -7,6 +7,7 @@ defmodule Tama.Dex.CassetteTest do
 
   alias Exqlite.Sqlite3
   alias Tama.Dex.Cassette
+  alias Tama.Dex.Cassette.Reader
   alias Tama.Dex.Index.SQL
   alias Tama.Dex.JSON
   alias Tama.Dex.TestSupport.FakeProducer
@@ -117,6 +118,27 @@ defmodule Tama.Dex.CassetteTest do
       assert File.ls!(dir) == []
     end
 
+    test "rejects an empty document list", %{tmp_dir: dir} do
+      path = Path.join(dir, "empty.tama-cassette")
+
+      assert Cassette.build([], path, name: "acme", version: "1") == {:error, :no_documents}
+      assert File.ls!(dir) == []
+    end
+
+    test "rejects a file verification would refuse, keeping the destination", %{tmp_dir: dir} do
+      built = incus!(dir, "0.2.0")
+      sha256 = sha256!(built.path)
+
+      assert Cassette.build([document("acme", ["acme_get"])], built.path,
+               name: "acme",
+               version: "1",
+               max_bytes: 1024
+             ) == {:error, :too_large}
+
+      assert File.ls!(dir) == ["opsmaru_incus-0.2.0.tama-cassette"]
+      assert sha256!(built.path) == sha256
+    end
+
     test "requires a valid name and version", %{tmp_dir: dir} do
       path = Path.join(dir, "acme.tama-cassette")
       documents = [document("acme", ["acme_get"])]
@@ -157,6 +179,26 @@ defmodule Tama.Dex.CassetteTest do
       assert manifest.content_digest == built.digest
       assert sha256 == built.sha256
       assert {:ok, _manifest} = Cassette.verify(built.path, sha256: String.upcase(built.sha256))
+    end
+
+    test "reads the file once, so replacing it afterwards changes nothing", %{tmp_dir: dir} do
+      built = incus!(dir, "0.2.0")
+      other = bulk!(dir, "other", 3)
+
+      assert {:ok, ids} =
+               Reader.with_verified(built.path, [sha256: built.sha256], fn
+                 conn, verified ->
+                   # Swap in another cassette after the pinned bytes were read.
+                   File.cp!(other.path, built.path)
+
+                   ids = SQL.query!(conn, "SELECT operation_id FROM operations ORDER BY 1")
+                   {:ok, {verified.sha256, ids}}
+               end)
+
+      assert {sha256, [["incus_image_delete"] | _rest] = rows} = ids
+      assert sha256 == built.sha256
+      assert length(rows) == 5
+      assert sha256!(built.path) == other.sha256
     end
 
     test "rejects a file that doesn't match its pin", %{tmp_dir: dir} do

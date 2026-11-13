@@ -56,6 +56,7 @@ defmodule Tama.Dex.Index.Connection do
     error_schema TEXT,
     error_schema_digest TEXT,
     extensions TEXT,
+    token_count INTEGER NOT NULL CHECK (token_count >= 0),
     UNIQUE (cassette, operation_id),
     FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE
   );

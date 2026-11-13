@@ -266,6 +266,9 @@ defmodule Tama.Dex.Execute do
   defp identity_value?(value) when is_binary(value),
     do: byte_size(value) <= @max_identity_bytes and String.valid?(value)
 
-  defp identity_value?(value) when is_integer(value) or is_boolean(value), do: true
+  defp identity_value?(value) when is_integer(value),
+    do: byte_size(Integer.to_string(value)) <= @max_identity_bytes
+
+  defp identity_value?(value) when is_boolean(value), do: true
   defp identity_value?(_value), do: false
 end
