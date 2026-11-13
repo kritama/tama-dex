@@ -396,9 +396,15 @@ with a `kind` and `dispatched`.
   such as `TamaMCP.Context`, so tama-dex needs no tama_mcp dependency. The
   whole caller becomes `call.context`. A caller without a scope list raises
   `ArgumentError`. Handlers return JSON-safe maps.
+- **Invalid arguments:** arguments that aren't a JSON object, or fail the
+  tool's input schema, or carry a query over 512 bytes, return
+  `invalid_arguments` (`dispatched: false`) with at most 16 JSON-pointer
+  issues, before any lookup.
 - **Hosts:** with TamaMCP, a host declares two tool modules using
   `raw_input_schema` and `raw_output_schema` from these definitions, and calls
-  the handlers from `call/2`. Each tool's own scope is only an outer gate.
+  the handlers from `call/2`. TamaMCP takes only literal schemas, so the host
+  injects the definitions with a macro at compile time (shown in the README).
+  Each tool's own scope is only an outer gate.
 - No `tama_mcp` dependency in v1, not even for tests. A test checks schema
   identity with a host-style module instead. An optional adapter can come
   later.

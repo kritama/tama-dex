@@ -13,12 +13,11 @@ defmodule Tama.Dex.Execute do
   alias Tama.Dex.Error
   alias Tama.Dex.Index
   alias Tama.Dex.Index.SQL
+  alias Tama.Dex.Issues
   alias Tama.Dex.JSON
   alias Tama.Dex.Search
-  alias Tama.Dex.Text
 
   @max_input_bytes 1024 * 1024
-  @max_issues 16
   @max_identity_bytes 256
 
   @type outcome :: Tama.Dex.execute_result()
@@ -156,13 +155,12 @@ defmodule Tama.Dex.Execute do
         :ok
 
       {:error, errors} ->
-        issues = Enum.flat_map(errors, &input_issues/1)
-
         {:error,
-         Error.new(:invalid_input, "The input does not match the operation's input schema.", %{
-           issues: Enum.take(issues, @max_issues),
-           issues_truncated: length(issues) > @max_issues
-         })}
+         Error.new(
+           :invalid_input,
+           "The input does not match the operation's input schema.",
+           Issues.from_errors(errors)
+         )}
     end
   end
 
@@ -172,34 +170,6 @@ defmodule Tama.Dex.Execute do
       {:error, _error} -> raise "a stored operation schema does not compile"
     end
   end
-
-  # Issue messages name the failed keyword and its constraint from the
-  # schema, never the input value. A missing property is reported at its
-  # own pointer.
-  defp input_issues(%{path: path, rule: :required, context: %{contrast: names}})
-       when is_list(names) do
-    for name <- names, do: issue(reverse(path) ++ [name], "is required")
-  end
-
-  defp input_issues(%{path: path, rule: rule, context: context}) do
-    [issue(reverse(path), issue_message(rule, context))]
-  end
-
-  defp reverse(path), do: path |> List.wrap() |> Enum.reverse()
-
-  defp issue(path, message) do
-    %{
-      pointer: path |> JSON.pointer() |> Text.bound(256),
-      message: Text.bound(message, 256)
-    }
-  end
-
-  defp issue_message(:type, %{contrast: type}), do: "must be of type #{format_type(type)}"
-  defp issue_message(:boolean_schema, _context), do: "is not allowed"
-  defp issue_message(rule, _context), do: "fails the #{rule} keyword"
-
-  defp format_type(types) when is_list(types), do: Enum.join(types, " or ")
-  defp format_type(type), do: to_string(type)
 
   # Dispatch
 

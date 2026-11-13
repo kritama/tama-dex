@@ -46,8 +46,8 @@
 
 ## 6. MCP tools
 
-- [ ] 6.1 Implement `Tama.Dex.MCP.search_tool/0`, `execute_tool/0`, `handle_search/3` and `handle_execute/4` (Decision 7). `search` accepts an optional `cassette`; `execute` requires `cassette`, `operation_id` and `input`. Schemas reject unknown properties. Arguments that fail a tool schema return `invalid_arguments` before any lookup. Handlers use only the caller's verified scopes. A caller is any map or struct with a `scopes` list (for example `TamaMCP.Context`); without one, raise `ArgumentError`.
-- [ ] 6.2 Add a README section and a test showing a TamaMCP host's two tool modules built from these definitions with `raw_input_schema`/`raw_output_schema`. Do not add `tama_mcp`, even as a test dependency: test schema identity with a host-style module built from the definitions.
+- [x] 6.1 Implement `Tama.Dex.MCP.search_tool/0`, `execute_tool/0`, `handle_search/3` and `handle_execute/4` (Decision 7). `search` accepts an optional `cassette`; `execute` requires `cassette`, `operation_id` and `input`. Schemas reject unknown properties. Arguments that fail a tool schema return `invalid_arguments` before any lookup. Handlers use only the caller's verified scopes. A caller is any map or struct with a `scopes` list (for example `TamaMCP.Context`); without one, raise `ArgumentError`.
+- [x] 6.2 Add a README section and a test showing a TamaMCP host's two tool modules built from these definitions with `raw_input_schema`/`raw_output_schema`. Do not add `tama_mcp`, even as a test dependency: test schema identity with a host-style module built from the definitions.
 
 ## 7. Cassettes
 

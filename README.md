@@ -4,7 +4,8 @@ Index and search for operation catalogues, so an MCP server can expose just two
 tools, `search` and `execute`, in place of one tool per operation.
 
 > Pre-release. The design is in
-> `openspec/changes/add-tama-dex-foundation/`; nothing is implemented yet.
+> `openspec/changes/add-tama-dex-foundation/`, and implementation is in
+> progress.
 
 ## Why
 
@@ -56,6 +57,82 @@ tama-dex is a library. It starts nothing on load, holds no listener, never
 fetches documents or cassettes over the network, and never runs an operation itself. It
 doesn't depend on `tama_mcp`. It provides the two tool definitions as data
 for the host's MCP server.
+
+## MCP tools
+
+`Tama.Dex.MCP.search_tool/0` and `execute_tool/0` return the two tool
+definitions as data: a name, title, description, JSON Schema 2020-12 input
+and output schemas, and annotations. `handle_search/3` and `handle_execute/4`
+take the index, the tool arguments and the caller, and return JSON-safe maps
+matching those output schemas. A caller is any map or struct with a `scopes`
+list, such as `TamaMCP.Context`; every operation is checked against those
+scopes, so the host's scope on each tool is only an outer gate.
+
+`TamaMCP.Tool` accepts only literal schemas, so a TamaMCP host injects the
+definitions with a small macro:
+
+```elixir
+defmodule MyHost.DexTool do
+  defmacro __using__(opts) do
+    tool = apply(Tama.Dex.MCP, Keyword.fetch!(opts, :tool), [])
+
+    quote do
+      use TamaMCP.Tool,
+        scopes: unquote(Keyword.fetch!(opts, :scopes)),
+        title: unquote(tool.title),
+        description: unquote(tool.description),
+        annotations: unquote(Map.to_list(tool.annotations))
+
+      raw_input_schema(unquote(Macro.escape(tool.input_schema)))
+      raw_output_schema(unquote(Macro.escape(tool.output_schema)))
+    end
+  end
+
+  def respond(structured) do
+    failed? = Map.has_key?(structured, "error") or Map.has_key?(structured, "operation_error")
+    build = if failed?, do: &TamaMCP.Response.tool_error/1, else: &TamaMCP.Response.success/1
+
+    {:ok,
+     build.(
+       structured_content: structured,
+       content: [TamaMCP.Response.text(Jason.encode!(structured))]
+     )}
+  end
+end
+
+defmodule MyHost.Tools.Search do
+  use MyHost.DexTool, tool: :search_tool, scopes: ["ops.search"]
+
+  @impl TamaMCP.Tool
+  def call(arguments, context) do
+    MyHost.Dex |> Tama.Dex.MCP.handle_search(arguments, context) |> MyHost.DexTool.respond()
+  end
+end
+
+defmodule MyHost.Tools.Execute do
+  use MyHost.DexTool, tool: :execute_tool, scopes: ["ops.execute"]
+
+  @impl TamaMCP.Tool
+  def call(arguments, context) do
+    MyHost.Dex
+    |> Tama.Dex.MCP.handle_execute(arguments, context, MyHost.executors())
+    |> MyHost.DexTool.respond()
+  end
+end
+
+defmodule MyHost.MCP do
+  use TamaMCP.Server, name: "my_host", version: "1.0.0"
+
+  tool MyHost.Tools.Search, name: "search"
+  tool MyHost.Tools.Execute, name: "execute"
+end
+```
+
+`MyHost.executors/0` returns the host's executor registrations, such as
+`%{"opsmaru_incus" => {MyHost.IncusExecutor, authorizer: MyHost.Authorizer}}`
+(see `Tama.Dex.Executor`). An `execute` error with `"dispatched" => true`
+means the operation may have taken effect, so the agent should reconcile
+rather than retry.
 
 ## Development
 

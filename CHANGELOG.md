@@ -36,3 +36,10 @@ The project follows Semantic Versioning and uses Conventional Commits.
   the result against the declared schemas, and marks every error with
   `dispatched`. Inputs and results are never stored, logged or sent in
   telemetry.
+- Added `Tama.Dex.MCP`: the `search` and `execute` tool definitions as data,
+  with JSON Schema 2020-12 input and output schemas, and `handle_search/3`
+  and `handle_execute/4`. Handlers take any caller with a verified `scopes`
+  list, return JSON-safe maps matching the output schemas, encode errors as
+  `error` objects with a `kind` and `dispatched`, and reject arguments that
+  fail the tool schema as `invalid_arguments` before any lookup. The README
+  shows a TamaMCP host built from the definitions.
