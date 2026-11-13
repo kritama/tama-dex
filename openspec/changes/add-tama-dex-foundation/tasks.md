@@ -14,17 +14,17 @@
 
 ## 3. Index
 
-- [ ] 3.1 Implement `Tama.Dex.Index` (design Decisions 1 and 4, with the `cassettes`, `sources` and `operations` tables keyed by cassette), with separate read and write connections, the writer running in a linked process, and an in-memory database for `:memory` opened through the `memdb` VFS under a name unique to the index. First confirm that exqlite 0.43 opens URI filenames (`mode=ro`, `vfs=memdb`).
+- [x] 3.1 Implement `Tama.Dex.Index` (design Decisions 1 and 4, with the `cassettes`, `sources` and `operations` tables keyed by cassette), with separate read and write connections, the writer running in a linked process, and an in-memory database for `:memory` opened through the `memdb` VFS under a name unique to the index. First confirm that exqlite 0.43 opens URI filenames (`mode=ro`, `vfs=memdb`).
   - `start_link/1` takes a required `path` (file or `:memory`), an optional `name` and limits.
   - A database file is created with mode 0600, in WAL mode, with foreign keys on.
   - Schema version 1 is created on first open. Any other version is dropped and recreated, emitting `[:tama_dex, :index, :recreated]`.
   - Compiled schemas are cached lazily, on first execute, in a public ETS table keyed by the SHA-256 of the stored schema text. Opening compiles nothing, and entries no row references are dropped after each commit or unload.
-- [ ] 3.2 Implement cassette namespaces and `Tama.Dex.load/3`, `unload/2` and `cassettes/1` (Decision 3).
+- [x] 3.2 Implement cassette namespaces and `Tama.Dex.load/3`, `unload/2` and `cassettes/1` (Decision 3).
   - Validate cassette names, and fail `cassette_conflict` when a name is held by the other kind.
   - `load/3` requires `cassette:` and validates first. An unchanged digest is a no-op returning `changed: false`.
   - Replace the source in one transaction, failing `duplicate_operation` on IDs owned by another source of the same cassette. The same IDs in other cassettes are allowed.
   - A failed load leaves the source's rows, and so the schemas it executes with, unchanged.
-- [ ] 3.3 Test every operation-index scenario, including the same operation name in two cassettes, a change to one cassette leaving the others untouched, concurrent readers during a reload (no mixed view, in both file-backed and `:memory` indexes), a restart on the same file, and an older schema version being recreated.
+- [x] 3.3 Test every operation-index scenario, including the same operation name in two cassettes, a change to one cassette leaving the others untouched, concurrent readers during a reload (no mixed view, in both file-backed and `:memory` indexes), a restart on the same file, and an older schema version being recreated.
 
 ## 4. Search
 

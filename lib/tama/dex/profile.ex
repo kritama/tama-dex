@@ -22,9 +22,11 @@ defmodule Tama.Dex.Profile do
   @external_resource @schema_path
   @json_schema @schema_path |> File.read!() |> Jason.decode!()
 
-  @max_document_bytes 4 * 1024 * 1024
-  @max_operations 1024
-  @max_schema_bytes 256 * 1024
+  @limits [
+    max_document_bytes: 4 * 1024 * 1024,
+    max_operations: 1024,
+    max_schema_bytes: 256 * 1024
+  ]
   @max_extension_bytes 16 * 1024
   @max_json_issues 32
 
@@ -35,6 +37,40 @@ defmodule Tama.Dex.Profile do
   @doc "The profile's published JSON Schema, as decoded JSON."
   @spec json_schema() :: map()
   def json_schema, do: @json_schema
+
+  @doc """
+  The profile's limits: `max_document_bytes` (4 MiB), `max_operations`
+  (1024) and `max_schema_bytes` (256 KiB).
+  """
+  @spec limits() :: keyword(pos_integer())
+  def limits, do: @limits
+
+  @doc false
+  # Checks host-supplied limits, which may only lower the profile's, and
+  # returns the full set.
+  @spec limits!(keyword()) :: keyword(pos_integer())
+  def limits!(overrides) when is_list(overrides) do
+    Enum.reduce(overrides, @limits, fn
+      {key, value}, limits when is_integer(value) and value > 0 ->
+        case Keyword.fetch(@limits, key) do
+          {:ok, max} when value <= max ->
+            Keyword.put(limits, key, value)
+
+          {:ok, max} ->
+            raise ArgumentError, "limit #{key} can't exceed the profile's #{max}"
+
+          :error ->
+            raise ArgumentError, "unknown limit #{inspect(key)}"
+        end
+
+      other, _limits ->
+        raise ArgumentError, "limits must be positive integers, got: #{inspect(other)}"
+    end)
+  end
+
+  def limits!(other) do
+    raise ArgumentError, "limits must be a keyword list, got: #{inspect(other)}"
+  end
 
   @doc """
   Validates a profile document given as decoded JSON (a map with string keys).
@@ -51,21 +87,29 @@ defmodule Tama.Dex.Profile do
      `:unsupported_profile`, and no operation is read.
   3. The serialized document is at most 4 MiB and holds at most 1024
      operations. Otherwise no schema is compiled.
+
+  The `:limits` option lowers the profile's limits, as a keyword list of
+  `:max_document_bytes`, `:max_operations` and `:max_schema_bytes`. Limits
+  above the profile's raise `ArgumentError`.
   4. The document's shape matches the profile's JSON Schema, and the
      semantic rules hold: path suffixes, unique IDs, confirmation and
      identity fields, references, sizes and schema compilation. Every issue
      from this step is reported together.
   """
-  @spec validate(term()) :: {:ok, Document.t()} | {:error, [Issue.t()]}
-  def validate(document) when is_map(document) do
+  @spec validate(term(), keyword()) :: {:ok, Document.t()} | {:error, [Issue.t()]}
+  def validate(document, opts \\ [])
+
+  def validate(document, opts) when is_map(document) do
+    limits = opts |> Keyword.get(:limits, []) |> limits!() |> Map.new()
+
     with :ok <- check_json(document),
          :ok <- check_profile(document),
-         {:ok, canonical_json} <- check_limits(document) do
-      check_document(document, canonical_json)
+         {:ok, canonical_json} <- check_limits(document, limits) do
+      check_document(document, canonical_json, limits)
     end
   end
 
-  def validate(_document) do
+  def validate(_document, _opts) do
     {:error, [Issue.new("", :invalid_document, "a profile document must be a JSON object")]}
   end
 
@@ -121,15 +165,23 @@ defmodule Tama.Dex.Profile do
 
   # Limits
 
-  defp check_limits(document) do
+  defp check_limits(document, limits) do
     canonical_json = JSON.encode!(document)
 
     issues =
       [
-        byte_size(canonical_json) > @max_document_bytes &&
-          issue([], :document_too_large, "the serialized document is over 4 MiB"),
-        operation_count(document) > @max_operations &&
-          issue(["paths"], :too_many_operations, "the document holds over 1024 operations")
+        byte_size(canonical_json) > limits.max_document_bytes &&
+          issue(
+            [],
+            :document_too_large,
+            "the serialized document is over #{limits.max_document_bytes} bytes"
+          ),
+        operation_count(document) > limits.max_operations &&
+          issue(
+            ["paths"],
+            :too_many_operations,
+            "the document holds over #{limits.max_operations} operations"
+          )
       ]
       |> Enum.filter(& &1)
 
@@ -141,12 +193,13 @@ defmodule Tama.Dex.Profile do
 
   # Shape and semantics
 
-  defp check_document(document, canonical_json) do
+  defp check_document(document, canonical_json, limits) do
     components = components(document)
     {component_issues, broken} = check_components(components, document)
     operations = operations(document)
 
-    checked = Enum.map(operations, &check_operation(&1, document, components, broken))
+    context = %{document: document, components: components, broken: broken, limits: limits}
+    checked = Enum.map(operations, &check_operation(&1, context))
 
     issues =
       (shape_issues(document) ++
@@ -237,8 +290,8 @@ defmodule Tama.Dex.Profile do
     end)
   end
 
-  defp check_operation({path, operation}, document, components, broken) do
-    {schema_issues, schemas} = check_schemas(path, operation, document, components, broken)
+  defp check_operation({path, operation}, %{document: document} = context) do
+    {schema_issues, schemas} = check_schemas(path, operation, context)
 
     issues =
       schema_issues ++
@@ -349,7 +402,7 @@ defmodule Tama.Dex.Profile do
 
   # Request and response schemas
 
-  defp check_schemas(path, operation, document, components, broken) do
+  defp check_schemas(path, operation, context) do
     [
       {:input, input_pointer(), input_schema(operation)},
       {:success, response_pointer("200"), response_schema(operation, "200")},
@@ -359,7 +412,7 @@ defmodule Tama.Dex.Profile do
       {key, pointer, %{} = schema}, {issues, bundled} ->
         location = operation_path(path, pointer)
 
-        case check_schema(schema, location, document, components, broken) do
+        case check_schema(schema, location, context) do
           {:ok, schema} -> {issues, Map.put(bundled, key, schema)}
           {:error, found} -> {issues ++ found, bundled}
         end
@@ -369,25 +422,27 @@ defmodule Tama.Dex.Profile do
     end)
   end
 
-  defp check_schema(schema, location, document, components, broken) do
-    with :ok <- check_size(schema, location),
+  defp check_schema(schema, location, context) do
+    %{document: document, components: components, broken: broken, limits: limits} = context
+
+    with :ok <- check_size(schema, location, limits),
          :ok <- check_references(schema, location, document),
          names = Schemas.reachable(schema, components),
          :ok <- check_broken(names, broken),
          bundled = Schemas.bundle(schema, names, components),
-         :ok <- check_size(bundled, location) do
+         :ok <- check_size(bundled, location, limits) do
       compile(bundled, location)
     end
   end
 
-  defp check_size(schema, location) do
-    if schema |> JSON.encode!() |> byte_size() > @max_schema_bytes do
+  defp check_size(schema, location, %{max_schema_bytes: max}) do
+    if schema |> JSON.encode!() |> byte_size() > max do
       {:error,
        [
          issue(
            location,
            :schema_too_large,
-           "the schema, with the components it references, is over 256 KiB"
+           "the schema, with the components it references, is over #{max} bytes"
          )
        ]}
     else

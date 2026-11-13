@@ -255,12 +255,11 @@ defmodule Tama.Dex.ProfileTest do
       assert Enum.map(issues, & &1.pointer) == ["/components/schemas/Name/$ref"]
     end
 
-    test "external references are never fetched" do
-      document = fixture("invalid", "external_reference")
-      before = MapSet.new(Process.list())
+    test "external references are rejected before any schema is compiled or fetched" do
+      issues = issues(fixture("invalid", "external_reference"))
 
-      assert has_issue?(issues(document), :external_reference, @input <> "/properties/name/$ref")
-      assert MapSet.new(Process.list()) |> MapSet.difference(before) |> MapSet.size() == 0
+      assert has_issue?(issues, :external_reference, @input <> "/properties/name/$ref")
+      refute Enum.any?(issues, &(&1.code == :schema_compile_failed))
     end
 
     test "$ref is read through, but compositions are not" do

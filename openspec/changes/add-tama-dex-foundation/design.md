@@ -62,9 +62,13 @@
 The library has no `Application` module.
 
 - **Index process:** `Tama.Dex.Index.start_link(opts)` starts one GenServer
-  that owns two exqlite connections. A read connection serves `search`,
-  `describe` and lookups. A write connection is used only by a linked writer
-  process that runs loads and imports, one at a time.
+  that holds the index's state and links two worker processes, each owning
+  one exqlite connection. The reader runs `search`, `describe` and lookups.
+  The writer runs loads and imports, one at a time. The index process does
+  no SQLite work itself, so its state (such as readiness) answers without
+  waiting on SQLite. It forwards each query to the reader, which replies to
+  the caller directly. A write's result goes back through the index process,
+  which updates its state before replying.
   - In WAL mode, readers keep seeing the last committed state while a write is
     in progress, so a background import never blocks searches in a
     file-backed index.
@@ -240,13 +244,21 @@ CREATE TABLE operations (id INTEGER PRIMARY KEY, cassette TEXT NOT NULL, source 
   operation_id TEXT NOT NULL,
   summary TEXT NOT NULL, description TEXT NOT NULL, tags TEXT NOT NULL, scopes TEXT NOT NULL,
   destructive INTEGER NOT NULL, deprecated INTEGER NOT NULL, confirmation TEXT, bounds TEXT,
-  input_schema TEXT NOT NULL, success_schema TEXT NOT NULL, error_schema TEXT, extensions TEXT,
+  identity TEXT,
+  input_schema TEXT NOT NULL, input_schema_digest TEXT NOT NULL,
+  success_schema TEXT NOT NULL, success_schema_digest TEXT NOT NULL,
+  error_schema TEXT, error_schema_digest TEXT, extensions TEXT,
   UNIQUE (cassette, operation_id),
   FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE);
+CREATE INDEX operations_source ON operations (cassette, source);
 CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, description, fields,
   tokenize='unicode61');                                                  -- rowid = operations.id
 ```
 
+- JSON columns hold canonical JSON. Schema columns hold the bundled schemas,
+  and each `*_schema_digest` is the SHA-256 of that text: the compiled-schema
+  cache key, and what the index checks to drop cache entries no row
+  references. `identity` holds the `x-tama-identity` names.
 - `fields` is the space-joined top-level input property names and their
   descriptions, read as the profile defines top-level properties, so
   `fingerprint` finds `incus_image_delete`.

@@ -11,7 +11,8 @@ The library SHALL have no application callback.
 - A host SHALL start `Tama.Dex.Index` explicitly, under its own supervisor,
   with a required `path` (a file path, or `:memory`).
 - A database file MUST be created with mode 0600 and opened in WAL mode.
-- One index process SHALL own the connections and serialize writes.
+- One index process and its linked workers SHALL own the connections and
+  serialize writes.
 - One index SHALL hold every cassette the host installs.
 
 #### Scenario: Dependency loaded without an index
