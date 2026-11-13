@@ -389,8 +389,18 @@ defmodule Tama.Dex.MCP do
           include_schemas: Map.get(arguments, "include_schemas", true)
         ]
 
-      {:ok, response} = Tama.Dex.search(index, arguments["query"], opts)
-      json_safe(response)
+      case Tama.Dex.search(index, arguments["query"], opts) do
+        {:ok, response} ->
+          json_safe(response)
+
+        {:error, :not_ready} ->
+          error_object(
+            "not_ready",
+            false,
+            "The operation index is still loading. Try again shortly.",
+            %{}
+          )
+      end
     end
   end
 

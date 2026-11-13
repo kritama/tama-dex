@@ -2,6 +2,7 @@ defmodule Tama.Dex.IndexTest do
   use ExUnit.Case, async: true
 
   import Tama.Dex.TestSupport.Documents
+  import Tama.Dex.TestSupport.Telemetry
 
   alias Exqlite.Sqlite3
   alias Tama.Dex.Index
@@ -566,7 +567,7 @@ defmodule Tama.Dex.IndexTest do
       index = start_index!(path: :memory)
 
       ref =
-        :telemetry_test.attach_event_handlers(self(), [
+        attach_local([
           [:tama_dex, :load, :start],
           [:tama_dex, :load, :stop]
         ])

@@ -471,10 +471,14 @@ imports. The user's target flow:
   first, then replaces the whole cassette (Decision 3) in one transaction,
   under the manifest name or `as:`.
   - **Copy mode** is used only when the host passed a matching `sha256` pin
-    and the index schema version matches. Rows are copied from the attached
-    read-only cassette, with the `cassette` column set to the installed name.
-    `operations.id` is shared across the whole index, so copied rows get new
-    IDs, and their FTS rows are inserted under those IDs.
+    and the index schema version matches. Rows are read through the
+    read-only connection verification opened, so they come from the file
+    that was verified, and written with the `cassette` column set to the
+    installed name. The cassette is never attached to the writer: an
+    in-memory index's `memdb` VFS would open it empty, and an untrusted file
+    stays off the writer connection. `operations.id` is shared across the
+    whole index, so copied rows get new IDs, and their FTS rows are inserted
+    under those IDs.
   - **Rebuild mode** is used otherwise: without a pin, or with a different
     index schema version. Each embedded document is loaded as `load/3` would.
     A different tama-dex version alone never forces a rebuild, because the
@@ -505,23 +509,36 @@ readiness that may lag runtime readiness.
   deadline passes, the transaction is rolled back, the previous entries stay
   in place, and the call returns `{:error, :deadline}`. Without `timeout:`,
   the call waits until the work finishes: tama-dex never applies a default
-  call timeout such as `GenServer.call/2`'s 5 seconds.
+  call timeout such as `GenServer.call/2`'s 5 seconds. The deadline is
+  checked between steps (each validated document and each written
+  operation), so a call returns at its first check after the deadline. It
+  counts from the call, so time spent waiting behind another write counts.
 - **Background import:** `import(index, path, async: true, ...)` returns
-  `{:ok, ref}` once the cassette has been checked for size and file SHA-256,
-  and imports in the index's writer. When it finishes, the calling process
-  receives `{:tama_dex_import, ref, result}`, where `result` is what a
-  synchronous import would have returned.
+  `{:ok, ref}` once the cassette has passed its size, file SHA-256, header,
+  schema-object and manifest checks, and imports in the index's writer. The
+  manifest gives the cassette's name, so its status can be reported while
+  it waits. The writer then verifies the file in full. When it finishes,
+  the calling process receives `{:tama_dex_import, ref, result}`, where
+  `result` is what a synchronous import would have returned. A crashed
+  background job, which has no caller to re-raise in, sends
+  `{:error, :exception}`.
   - `Tama.Dex.Index.status/1` reports the index's readiness as a whole, and
-    emits `[:tama_dex, :index, :status]` on each change:
+    emits `[:tama_dex, :index, :status]` on each change, with the `status`
+    and the `index` pid in its metadata:
     - `:ready` whenever at least one cassette is committed, even while other
       imports run or after one has failed;
     - otherwise `{:importing, %{cassette, done: n, total: m}}` while a load
-      or import runs;
-    - otherwise `{:failed, reason}` if the last attempt failed;
+      or import runs or waits, counting sources;
+    - otherwise `{:failed, reason}` if the last attempt failed, with the
+      kind of its error (for example `:deadline`);
     - otherwise `:empty`.
   - `Tama.Dex.cassettes/1` reports each cassette's own status, so a host that
     imports several cassettes can tell when all of them are installed. `:ready`
     from `status/1` means at least one cassette is committed, not all of them.
+    A committed cassette is `:ready`, and keeps serving while it is reloaded.
+    A cassette with nothing committed is listed as `{:importing, progress}`
+    while its first attempt runs or waits, or `{:failed, reason}` when that
+    attempt failed, until it commits or is unloaded.
   - A host can wait for the `{:tama_dex_import, ref, result}` message, or
     poll `cassettes/1`.
 - **Not-ready behaviour:** `search/3` and `describe/4` return

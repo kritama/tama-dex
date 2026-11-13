@@ -9,6 +9,7 @@ defmodule Tama.Dex.Index.Store do
   # schemas with the SHA-256 of their text as the compiled-schema cache key.
 
   alias Tama.Dex.Document
+  alias Tama.Dex.Index.Job
   alias Tama.Dex.Index.SQL
   alias Tama.Dex.JSON
   alias Tama.Dex.Operation
@@ -17,14 +18,29 @@ defmodule Tama.Dex.Index.Store do
   Installs a document as one source of a local cassette, replacing that
   source's previous entries in one transaction.
   """
-  @spec load(SQL.conn(), String.t(), Document.t()) ::
+  @spec load(SQL.conn(), String.t(), Document.t(), Job.t() | nil) ::
           {:changed | :unchanged, {:ok, map()} | {:error, term()}}
-  def load(conn, cassette, %Document{} = document) do
+  def load(conn, cassette, %Document{} = document, job \\ nil) do
+    Job.progress(job, 0, 1)
+
     SQL.transaction(conn, fn ->
       with :ok <- check_kind(conn, cassette, "local"),
            :ok <- check_changed(conn, cassette, document),
            :ok <- check_duplicates(conn, cassette, document) do
-        replace_source(conn, cassette, document)
+        now = now()
+
+        SQL.run!(
+          conn,
+          """
+          INSERT INTO cassettes (cassette, kind, loaded_at) VALUES (?, 'local', ?)
+          ON CONFLICT (cassette) DO UPDATE SET loaded_at = excluded.loaded_at
+          """,
+          [cassette, now]
+        )
+
+        write_source(conn, cassette, document, now, job)
+        Job.checkpoint(job)
+        Job.progress(job, 1, 1)
         {:commit, {:changed, {:ok, loaded(cassette, document, true)}}}
       else
         :unchanged -> {:rollback, {:unchanged, {:ok, loaded(cassette, document, false)}}}
@@ -42,7 +58,9 @@ defmodule Tama.Dex.Index.Store do
     }
   end
 
-  defp check_kind(conn, cassette, kind) do
+  @doc "Checks that a cassette name is free or held by a cassette of `kind`, local or imported."
+  @spec check_kind(SQL.conn(), String.t(), String.t()) :: :ok | {:error, :cassette_conflict}
+  def check_kind(conn, cassette, kind) do
     case SQL.query!(conn, "SELECT kind FROM cassettes WHERE cassette = ?", [cassette]) do
       [] -> :ok
       [[^kind]] -> :ok
@@ -95,18 +113,13 @@ defmodule Tama.Dex.Index.Store do
     end
   end
 
-  defp replace_source(conn, cassette, document) do
-    now = now()
-
-    SQL.run!(
-      conn,
-      """
-      INSERT INTO cassettes (cassette, kind, loaded_at) VALUES (?, 'local', ?)
-      ON CONFLICT (cassette) DO UPDATE SET loaded_at = excluded.loaded_at
-      """,
-      [cassette, now]
-    )
-
+  @doc """
+  Replaces one source of a cassette with a document's entries, inside the
+  caller's transaction. The cassette row must exist. Checks the job's
+  deadline before each operation.
+  """
+  @spec write_source(SQL.conn(), String.t(), Document.t(), String.t(), Job.t() | nil) :: :ok
+  def write_source(conn, cassette, document, loaded_at, job \\ nil) do
     delete_operations(conn, "cassette = ? AND source = ?", [cassette, document.source])
 
     SQL.run!(
@@ -125,11 +138,14 @@ defmodule Tama.Dex.Index.Store do
         document.version,
         document.profile,
         document.digest,
-        now
+        loaded_at
       ]
     )
 
-    Enum.each(document.operations, &insert_operation(conn, cassette, &1))
+    Enum.each(document.operations, fn operation ->
+      Job.checkpoint(job)
+      insert_operation(conn, cassette, operation)
+    end)
   end
 
   defp insert_operation(conn, cassette, %Operation{} = operation) do
@@ -223,6 +239,13 @@ defmodule Tama.Dex.Index.Store do
     end)
   end
 
+  @doc "Deletes every source and operation of a cassette, keeping its row."
+  @spec clear(SQL.conn(), String.t()) :: :ok
+  def clear(conn, cassette) do
+    delete_operations(conn, "cassette = ?", [cassette])
+    SQL.run!(conn, "DELETE FROM sources WHERE cassette = ?", [cassette])
+  end
+
   # Operations and their FTS rows are written and deleted together.
   defp delete_operations(conn, condition, args) do
     SQL.run!(
@@ -276,6 +299,12 @@ defmodule Tama.Dex.Index.Store do
     end)
   end
 
+  @doc "The names of the committed cassettes."
+  @spec cassette_names(SQL.conn()) :: [String.t()]
+  def cassette_names(conn) do
+    conn |> SQL.query!("SELECT cassette FROM cassettes ORDER BY cassette") |> List.flatten()
+  end
+
   @doc "The digests of every stored schema."
   @spec schema_digests(SQL.conn()) :: MapSet.t(String.t())
   def schema_digests(conn) do
@@ -295,7 +324,9 @@ defmodule Tama.Dex.Index.Store do
   defp mode("copy"), do: :copy
   defp mode("rebuild"), do: :rebuild
 
-  defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+  @doc "The current time as stored in `loaded_at` columns."
+  @spec now() :: String.t()
+  def now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
 
   defp timestamp(text) do
     {:ok, datetime, 0} = DateTime.from_iso8601(text)

@@ -2,6 +2,7 @@ defmodule Tama.Dex.ExecuteTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
+  import Tama.Dex.TestSupport.Telemetry
   import Tama.Dex.TestSupport.Documents
 
   alias Tama.Dex.Call
@@ -539,7 +540,7 @@ defmodule Tama.Dex.ExecuteTest do
   describe "retention" do
     test "inputs and results never appear in logs or telemetry", %{index: index} do
       events = for name <- [:start, :stop, :exception], do: [:tama_dex, :execute, name]
-      ref = :telemetry_test.attach_event_handlers(self(), events)
+      ref = attach_local(events)
 
       input = %{"instance" => "secret-instance", "command" => ["secret-command"]}
       result = exec_result(%{"stdout" => "secret-stdout"})
@@ -580,7 +581,7 @@ defmodule Tama.Dex.ExecuteTest do
     end
 
     test "an operation error's outcome is reported without its content", %{index: index} do
-      ref = :telemetry_test.attach_event_handlers(self(), [[:tama_dex, :execute, :stop]])
+      ref = attach_local([[:tama_dex, :execute, :stop]])
 
       {:error, %{operation_error: _error}} =
         execute(index, "macus", "list_instances", %{},

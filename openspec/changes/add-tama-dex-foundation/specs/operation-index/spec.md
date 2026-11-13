@@ -91,9 +91,9 @@ install it as one source of the local cassette named by its required
   return `{:error, :deadline}`.
 - Without a `timeout`, they SHALL wait until the work finishes, and MUST NOT
   fail on a default call timeout.
-- `import/3` with `async: true` SHALL return `{:ok, ref}` after the size and
-  SHA-256 checks, finish in the index's writer, and then send the caller
-  `{:tama_dex_import, ref, result}`.
+- `import/3` with `async: true` SHALL return `{:ok, ref}` after the size,
+  SHA-256, header, schema-object and manifest checks, finish in the index's
+  writer, and then send the caller `{:tama_dex_import, ref, result}`.
 - `Tama.Dex.Index.status/1` SHALL report `:ready` whenever at least one
   cassette is committed. Otherwise it SHALL report importing progress while a
   load or import runs, a failure if the last attempt failed, or `:empty`.

@@ -43,3 +43,16 @@ The project follows Semantic Versioning and uses Conventional Commits.
   `error` objects with a `kind` and `dispatched`, and reject arguments that
   fail the tool schema as `invalid_arguments` before any lookup. The README
   shows a TamaMCP host built from the definitions.
+- Added cassettes: `Tama.Dex.Cassette.build/3` and `mix tama.dex.cassette`
+  build `tama-cassette/1` files with a manifest, canonical documents and a
+  reproducible content digest; `Tama.Dex.Cassette.verify/2` checks an
+  untrusted file's size, SHA-256, header, schema objects, integrity,
+  document digests and profile validity; and `Tama.Dex.import/3` installs a
+  cassette under its own name or `as:`, copying prebuilt rows only under a
+  matching SHA-256 pin and rebuilding from the documents otherwise.
+- Added startup-bounded indexing: a `timeout` for `load/3` and `import/3`
+  that rolls back to the previous entries, background imports with
+  `async: true`, `Tama.Dex.Index.status/1` with
+  `[:tama_dex, :index, :status]` telemetry, per-cassette status in
+  `cassettes/1`, and `not_ready` from search, describe, execute and the MCP
+  handlers while nothing is committed.

@@ -123,6 +123,9 @@ defmodule Tama.Dex.Index.Connection do
       {:ok, conn} ->
         :ok = Sqlite3.set_busy_timeout(conn, @busy_timeout)
         _result = Sqlite3.enable_load_extension(conn, false)
+        # Schema functions run only from trusted SQL. Cassettes are attached
+        # to the writer.
+        SQL.execute!(conn, "PRAGMA trusted_schema = OFF")
         {:ok, conn}
 
       {:error, reason} ->
@@ -182,14 +185,22 @@ defmodule Tama.Dex.Index.Connection do
 
   defp create(conn) do
     SQL.transaction(conn, fn ->
-      SQL.execute!(conn, @tables)
-
-      SQL.run!(conn, "INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [
-        Integer.to_string(@schema_version)
-      ])
-
+      create_tables(conn)
       {:commit, :ok}
     end)
+  end
+
+  @doc """
+  Creates the storage schema's tables and records its version, inside the
+  caller's transaction. Cassettes hold the same tables.
+  """
+  @spec create_tables(SQL.conn()) :: :ok
+  def create_tables(conn) do
+    SQL.execute!(conn, @tables)
+
+    SQL.run!(conn, "INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [
+      Integer.to_string(@schema_version)
+    ])
   end
 
   defp recreate(conn) do

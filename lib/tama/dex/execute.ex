@@ -25,12 +25,20 @@ defmodule Tama.Dex.Execute do
   @doc "Runs a validated execute. Returns the outcome and the source (or `nil`)."
   @spec run(Index.t(), String.t(), String.t(), term(), map()) :: {outcome(), String.t() | nil}
   def run(index, cassette, operation_id, input, options) do
-    case Index.read(index, &lookup(&1, cassette, operation_id, options.scopes)) do
-      nil ->
+    case Index.read_ready(
+           index,
+           {:cassette, cassette},
+           &lookup(&1, cassette, operation_id, options.scopes)
+         ) do
+      {:ok, nil} ->
         {{:error, Error.new(:not_found, "No such operation is available to this caller.")}, nil}
 
-      operation ->
+      {:ok, operation} ->
         {dispatch(index, operation, input, options), operation.source}
+
+      {:error, :not_ready} ->
+        {{:error,
+          Error.new(:not_ready, "The operation index is still loading. Try again shortly.")}, nil}
     end
   end
 

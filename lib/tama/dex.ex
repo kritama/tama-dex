@@ -20,8 +20,12 @@ defmodule Tama.Dex do
   to one kind.
   """
 
+  alias Tama.Dex.Cassette
+  alias Tama.Dex.Cassette.Import
+  alias Tama.Dex.Cassette.Reader
   alias Tama.Dex.Execute
   alias Tama.Dex.Index
+  alias Tama.Dex.Index.Job
   alias Tama.Dex.Index.Store
   alias Tama.Dex.Profile
   alias Tama.Dex.Search
@@ -46,6 +50,19 @@ defmodule Tama.Dex do
           {:invalid_document, [Profile.Issue.t()]}
           | :cassette_conflict
           | {:duplicate_operation, [%{source: String.t(), operation_ids: [String.t()]}]}
+          | :deadline
+
+  @type import_result ::
+          {:ok,
+           %{
+             cassette: cassette(),
+             version: String.t(),
+             digest: String.t(),
+             mode: :copy | :rebuild,
+             changed: boolean(),
+             sources: [%{source: String.t(), operations: non_neg_integer()}]
+           }}
+          | {:error, Cassette.verify_error() | :cassette_conflict | :deadline}
 
   @doc """
   Validates a profile document and installs it as one source of the local
@@ -67,8 +84,20 @@ defmodule Tama.Dex do
     same cassette owns some of the document's `operationId`s, with each
     owning source and its conflicting IDs.
 
-  A failed load changes nothing. Raises `ArgumentError` when `:cassette` is
-  missing or not a valid cassette name.
+  A failed load changes nothing.
+
+  ## Options
+
+  - `:cassette` (required): the local cassette's name.
+  - `:timeout`: a deadline in milliseconds. When it passes, the load rolls
+    back, the previous entries stay, and it returns `{:error, :deadline}`.
+    The deadline is checked between steps, so the call returns at the first
+    check after it. Without `:timeout`, the call waits until the load
+    finishes, with no default timeout.
+
+  While a load runs, `Tama.Dex.Index.status/1` reports it. Raises
+  `ArgumentError` when `:cassette` is missing or not a valid cassette name,
+  or `:timeout` is invalid.
   """
   @spec load(Index.t(), term(), keyword()) ::
           {:ok,
@@ -81,16 +110,33 @@ defmodule Tama.Dex do
           | {:error, load_error()}
   def load(index, document, opts) do
     cassette = cassette!(Keyword.get(opts, :cassette))
+    deadline = Job.deadline(Keyword.get(opts, :timeout))
 
     :telemetry.span([:tama_dex, :load], %{cassette: cassette}, fn ->
       result =
         case Profile.validate(document, limits: Index.limits(index)) do
-          {:ok, document} -> Index.write(index, &Store.load(&1, cassette, document))
+          {:ok, document} -> install(index, cassette, document, deadline)
           {:error, issues} -> {:error, {:invalid_document, issues}}
         end
 
       {result, load_metadata(cassette, result)}
     end)
+  end
+
+  defp install(index, cassette, document, deadline) do
+    if Job.expired?(deadline) do
+      {:error, :deadline}
+    else
+      Index.run(index, &load_job(&1, &2, cassette, document),
+        cassette: cassette,
+        kind: :local,
+        deadline: deadline
+      )
+    end
+  end
+
+  defp load_job(conn, job, cassette, document) do
+    Job.guard(fn -> Store.load(conn, cassette, document, job) end)
   end
 
   defp load_metadata(cassette, {:ok, loaded}) do
@@ -118,20 +164,116 @@ defmodule Tama.Dex do
   @spec unload(Index.t(), cassette()) :: :ok
   def unload(index, cassette) do
     cassette = cassette!(cassette)
-    Index.write(index, &Store.unload(&1, cassette))
+    Index.write(index, &Store.unload(&1, cassette), forget: cassette)
   end
 
   @doc """
-  Lists the installed cassettes, ordered by name.
+  Installs a cassette file, replacing the whole cassette of that name in one
+  transaction. Other cassettes don't change.
+
+  The file is verified first, as `Tama.Dex.Cassette.verify/2` does, and is
+  installed under its manifest name or `:as`. A name held by a local
+  cassette fails with `:cassette_conflict`.
+
+  - **Copy mode** copies the cassette's prebuilt rows. It is used only when
+    `:sha256` matches the file and the cassette has this index's schema
+    version.
+  - **Rebuild mode** writes the cassette's verified documents, as `load/3`
+    would. It is used otherwise, so an unpinned cassette can't install rows
+    that differ from its documents.
+
+  Importing the same content digest again writes nothing and reports
+  `changed: false`. tama-dex never downloads cassettes: `path` is a local
+  file the host supplies, and it should be one the host controls, such as a
+  file bundled at build time.
+
+  ## Options
+
+  - `:sha256`: the file's expected SHA-256, the pin that allows copy mode.
+  - `:as`: install under this name instead of the manifest's.
+  - `:timeout`: a deadline in milliseconds, as for `load/3`. When it
+    passes, the import rolls back and returns `{:error, :deadline}`.
+  - `:async`: when `true`, returns `{:ok, ref}` once the file has passed
+    its size, SHA-256, header, schema and manifest checks, and imports in
+    the index's writer. The calling process then receives
+    `{:tama_dex_import, ref, result}`, where `result` is what a synchronous
+    import returns.
+
+  Returns `{:ok, %{cassette, version, digest, mode, changed, sources}}`,
+  with each source's `source` and `operations` (a count), or
+  `{:error, reason}` with a `t:Tama.Dex.Cassette.verify_error/0`,
+  `:cassette_conflict` or `:deadline`. Emits the
+  `[:tama_dex, :import, :start | :stop | :exception]` span, whose metadata
+  never includes the path or document content.
+  """
+  @spec import(Index.t(), Path.t(), keyword()) :: import_result() | {:ok, reference()}
+  def import(index, path, opts \\ []) do
+    path = Cassette.path!(path)
+    pin = Cassette.sha256!(Keyword.get(opts, :sha256))
+    as = if name = Keyword.get(opts, :as), do: cassette!(name)
+    deadline = Job.deadline(Keyword.get(opts, :timeout))
+    async = boolean!(Keyword.get(opts, :async, false), :async)
+
+    with {:ok, %{manifest: manifest}} <- Reader.precheck(path, sha256: pin),
+         :ok <- if(Job.expired?(deadline), do: {:error, :deadline}, else: :ok) do
+      name = as || manifest.name
+      options = %{name: name, as: as, pin: pin, limits: Index.limits(index)}
+      job = fn conn, job -> Import.run(conn, path, options, job) end
+      run = [cassette: name, kind: :imported, deadline: deadline]
+
+      if async do
+        ref = make_ref()
+        :ok = Index.run_async(index, job, run, ref)
+        {:ok, ref}
+      else
+        Index.run(index, job, run)
+      end
+    end
+  end
+
+  defp boolean!(value, _key) when is_boolean(value), do: value
+
+  defp boolean!(value, key),
+    do: raise(ArgumentError, ":#{key} must be a boolean, got: #{inspect(value)}")
+
+  @doc """
+  Lists the cassettes, ordered by name, with each one's own status.
 
   Each is a map with `cassette`, `kind` (`:local` or `:imported`),
   `version`, `status`, `mode` (the import mode, `nil` for a local cassette),
   `digest` (the content digest of an imported cassette), `loaded_at` and
   `sources`. Each source has `source`, `title`, `version`, `profile`,
   `digest`, `operations` (a count) and `loaded_at`.
+
+  `status` is `:ready` for a committed cassette, which keeps serving while
+  it is reloaded or re-imported. A cassette with nothing committed yet is
+  listed with `{:importing, %{cassette, done, total}}` while its first load
+  or import runs or waits, or `{:failed, reason}` when that attempt failed,
+  with `nil` for the other fields and no sources. A host importing several
+  cassettes can wait until each one is `:ready`.
   """
   @spec cassettes(Index.t()) :: [map()]
-  def cassettes(index), do: Index.read(index, &Store.cassettes/1)
+  def cassettes(index) do
+    pending = Index.pending(index)
+    committed = Index.read(index, &Store.cassettes/1)
+    names = MapSet.new(committed, & &1.cassette)
+
+    uncommitted =
+      for {cassette, entry} <- pending, not MapSet.member?(names, cassette) do
+        %{
+          cassette: cassette,
+          kind: entry.kind,
+          version: nil,
+          status: entry.status,
+          mode: nil,
+          digest: nil,
+          loaded_at: nil,
+          sources: []
+        }
+      end
+
+    Enum.sort_by(committed ++ uncommitted, & &1.cassette)
+  end
 
   @doc """
   Searches the operations the caller may run, across every cassette in one
@@ -162,6 +304,9 @@ defmodule Tama.Dex do
   Raises `ArgumentError` for a missing `:scopes`, a query over 512 bytes, a
   limit outside 1 to 20, or another invalid option.
 
+  While no cassette is committed and a load or import runs, returns
+  `{:error, :not_ready}` at once (see `Tama.Dex.Index.status/1`).
+
   Returns `{:ok, %{results: results, truncated: truncated}}`. Each result has
   `cassette`, `cassette_version`, `operation_id`, `source`, `summary`,
   `description` (cut to 1024 characters, with `description_truncated`),
@@ -172,7 +317,7 @@ defmodule Tama.Dex do
   had to be cut.
   """
   @spec search(Index.t(), String.t() | nil, keyword()) ::
-          {:ok, %{results: [map()], truncated: boolean()}}
+          {:ok, %{results: [map()], truncated: boolean()}} | {:error, :not_ready}
   def search(index, query, opts) do
     options = Search.options!(query, opts)
 
@@ -183,10 +328,14 @@ defmodule Tama.Dex do
     }
 
     :telemetry.span([:tama_dex, :search], metadata, fn ->
-      response = Index.read(index, &Search.search(&1, options))
+      case Index.read_ready(index, :index, &Search.search(&1, options)) do
+        {:ok, response} ->
+          {{:ok, response},
+           Map.merge(metadata, %{results: length(response.results), truncated: response.truncated})}
 
-      {{:ok, response},
-       Map.merge(metadata, %{results: length(response.results), truncated: response.truncated})}
+        {:error, :not_ready} = error ->
+          {error, Map.merge(metadata, %{results: 0, truncated: false, not_ready: true})}
+      end
     end)
   end
 
@@ -197,19 +346,26 @@ defmodule Tama.Dex do
   operation's opaque `extensions`.
 
   An unknown cassette or operation, or one the caller's `:scopes` (required)
-  don't allow, returns `{:error, :not_found}`.
+  don't allow, returns `{:error, :not_found}`. While the index isn't ready,
+  or the cassette's first load or import is still running, returns
+  `{:error, :not_ready}`.
   """
   @spec describe(Index.t(), cassette(), String.t(), keyword()) ::
-          {:ok, map()} | {:error, :not_found}
+          {:ok, map()} | {:error, :not_found | :not_ready}
   def describe(index, cassette, operation_id, opts) do
     cassette = cassette!(cassette)
     scopes = Search.scopes!(Keyword.get(opts, :scopes))
 
     operation_id = operation_id!(operation_id)
 
-    case Index.read(index, &Search.describe(&1, cassette, operation_id, scopes)) do
-      nil -> {:error, :not_found}
-      operation -> {:ok, operation}
+    case Index.read_ready(
+           index,
+           {:cassette, cassette},
+           &Search.describe(&1, cassette, operation_id, scopes)
+         ) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, operation} -> {:ok, operation}
+      {:error, :not_ready} = error -> error
     end
   end
 
@@ -222,7 +378,9 @@ defmodule Tama.Dex do
 
   1. The operation exists in `cassette` (and only there) and the caller's
      `:scopes` allow it, otherwise `:not_found`, which doesn't reveal
-     whether a hidden operation or cassette exists.
+     whether a hidden operation or cassette exists. While the index isn't
+     ready, or the cassette's first load or import is still running, this
+     is `:not_ready` instead.
   2. `:executors` has an entry for the operation's source, otherwise
      `:no_executor`. See `Tama.Dex.Executor`.
   3. `input` is a JSON object (a map with string keys and JSON values) of at

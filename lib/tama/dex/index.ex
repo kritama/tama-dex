@@ -37,15 +37,28 @@ defmodule Tama.Dex.Index do
   The database is derived data. One whose storage schema version this code
   doesn't know is recreated empty, emitting `[:tama_dex, :index, :recreated]`,
   and the host loads its documents again.
+
+  ## Readiness
+
+  `status/1` reports whether the index can serve. Search must never block or
+  fail a host's startup, so while nothing is committed and a load or import
+  runs, `Tama.Dex.search/3` and `Tama.Dex.describe/4` return
+  `{:error, :not_ready}` and `Tama.Dex.execute/5` a `:not_ready` error,
+  without waiting. See `status/1`.
   """
 
   use GenServer
 
   alias Tama.Dex.Index.Connection
+  alias Tama.Dex.Index.Job
   alias Tama.Dex.Index.Worker
   alias Tama.Dex.Profile
 
   @type t :: GenServer.server()
+
+  @type progress :: %{cassette: String.t(), done: non_neg_integer(), total: non_neg_integer()}
+
+  @type status :: :ready | {:importing, progress()} | {:failed, atom()} | :empty
 
   @doc false
   def child_spec(opts) do
@@ -91,19 +104,88 @@ defmodule Tama.Dex.Index do
   @spec limits(t()) :: keyword()
   def limits(index), do: GenServer.call(index, :limits)
 
+  @doc """
+  The index's readiness as a whole:
+
+  - `:ready` whenever at least one cassette is committed, even while other
+    loads or imports run or after one has failed;
+  - otherwise `{:importing, %{cassette, done, total}}` while a load or
+    import runs or waits, counting sources;
+  - otherwise `{:failed, reason}` when the last attempt failed, with the
+    kind of its error, such as `:deadline`;
+  - otherwise `:empty`.
+
+  `:ready` means at least one cassette is committed, not all of them. Each
+  cassette's own status is in `Tama.Dex.cassettes/1`. Every change emits
+  `[:tama_dex, :index, :status]` with the new `status` and the `index` pid
+  in its metadata.
+
+  Reads the index's state only, so it never waits on SQLite.
+  """
+  @spec status(t()) :: status()
+  def status(index), do: GenServer.call(index, :status)
+
   @doc false
   # Runs `job.(conn)` on the read connection and returns its result.
   @spec read(t(), (term() -> result)) :: result when result: term()
   def read(index, job) do
-    index |> GenServer.call({:read, job}, :infinity) |> unwrap()
+    index |> GenServer.call({:read, job, nil}, :infinity) |> unwrap()
+  end
+
+  @doc false
+  # Like `read/2`, but returns `{:error, :not_ready}` without reading when
+  # the index isn't ready (`:index`), or isn't ready for one cassette
+  # (`{:cassette, name}`: the index isn't ready, or the cassette's first
+  # load or import is still running).
+  @spec read_ready(t(), :index | {:cassette, String.t()}, (term() -> result)) ::
+          {:ok, result} | {:error, :not_ready}
+        when result: term()
+  def read_ready(index, scope, job) do
+    case GenServer.call(index, {:read, job, scope}, :infinity) do
+      :not_ready -> {:error, :not_ready}
+      reply -> {:ok, unwrap(reply)}
+    end
+  end
+
+  @doc false
+  # The cassettes with a load or import running or waiting, or whose last
+  # attempt failed, and no committed entries: `%{name => %{kind, status}}`.
+  @spec pending(t()) :: %{String.t() => %{kind: :local | :imported, status: term()}}
+  def pending(index), do: GenServer.call(index, :pending)
+
+  @doc false
+  # Runs a tracked load or import of one cassette: `job.(conn, job_context)`
+  # on the write connection, returning `{:changed, reply}` or
+  # `{:unchanged, reply}`. Options: `:cassette` and `:kind` (required),
+  # `:deadline` (a monotonic millisecond deadline, or nil).
+  @spec run(t(), (term(), Job.t() -> {:changed | :unchanged, result}), keyword()) :: result
+        when result: term()
+  def run(index, job, opts) do
+    index |> GenServer.call({:run, job, opts, :call}, :infinity) |> unwrap()
+  end
+
+  @doc false
+  # Like `run/3`, but returns at once. The calling process later receives
+  # `{:tama_dex_import, ref, reply}`.
+  @spec run_async(
+          t(),
+          (term(), Job.t() -> {:changed | :unchanged, term()}),
+          keyword(),
+          reference()
+        ) ::
+          :ok
+  def run_async(index, job, opts, ref) do
+    GenServer.call(index, {:run, job, opts, {:async, self(), ref}}, :infinity)
   end
 
   @doc false
   # Runs `job.(conn)` on the write connection. The job returns
   # `{:changed, reply}` after committing a change, or `{:unchanged, reply}`.
-  @spec write(t(), (term() -> {:changed | :unchanged, result})) :: result when result: term()
-  def write(index, job) do
-    index |> GenServer.call({:write, job}, :infinity) |> unwrap()
+  # `forget: cassette` drops that cassette's failed-attempt status.
+  @spec write(t(), (term() -> {:changed | :unchanged, result}), keyword()) :: result
+        when result: term()
+  def write(index, job, opts \\ []) do
+    index |> GenServer.call({:write, job, opts}, :infinity) |> unwrap()
   end
 
   @doc false
@@ -140,7 +222,22 @@ defmodule Tama.Dex.Index do
          {:ok, reader} <- Worker.start_link({:reader, location}) do
       emit_schema_event(GenServer.call(writer, :schema))
       cache = :ets.new(__MODULE__, [:set, :public, read_concurrency: true])
-      {:ok, %{reader: reader, writer: writer, limits: limits, cache: cache}}
+
+      state = %{
+        reader: reader,
+        writer: writer,
+        limits: limits,
+        cache: cache,
+        # Readiness: committed cassette names, tracked writes by cassette,
+        # failed attempts of uncommitted cassettes, and the last outcome.
+        committed: MapSet.new(GenServer.call(writer, :cassette_names)),
+        tracking: %{},
+        failures: %{},
+        last: :ok,
+        sequence: 0
+      }
+
+      {:ok, Map.put(state, :status, compute_status(state))}
     else
       {:error, reason} -> {:stop, reason}
     end
@@ -149,27 +246,205 @@ defmodule Tama.Dex.Index do
   @impl GenServer
   def handle_call(:limits, _from, state), do: {:reply, state.limits, state}
   def handle_call(:schema_cache, _from, state), do: {:reply, state.cache, state}
+  def handle_call(:status, _from, state), do: {:reply, state.status, state}
 
-  def handle_call({:read, job}, from, state) do
-    send(state.reader, {:read, from, job})
+  def handle_call(:pending, _from, state) do
+    importing =
+      for {cassette, entry} <- state.tracking,
+          not MapSet.member?(state.committed, cassette),
+          into: %{} do
+        {cassette, %{kind: entry.kind, status: {:importing, progress(cassette, entry)}}}
+      end
+
+    failed =
+      for {cassette, {kind, reason}} <- state.failures,
+          not Map.has_key?(importing, cassette),
+          into: %{} do
+        {cassette, %{kind: kind, status: {:failed, reason}}}
+      end
+
+    {:reply, Map.merge(failed, importing), state}
+  end
+
+  def handle_call({:read, job, scope}, from, state) do
+    if ready?(state, scope) do
+      send(state.reader, {:read, from, job})
+      {:noreply, state}
+    else
+      {:reply, :not_ready, state}
+    end
+  end
+
+  def handle_call({:write, job, opts}, from, state) do
+    state =
+      case Keyword.get(opts, :forget) do
+        nil -> state
+        cassette -> update_status(%{state | failures: Map.delete(state.failures, cassette)})
+      end
+
+    send(state.writer, {:write, from, job, self(), nil})
     {:noreply, state}
   end
 
-  def handle_call({:write, job}, from, state) do
-    send(state.writer, {:write, from, job, self()})
-    {:noreply, state}
+  def handle_call({:run, job, opts, reply}, from, state) do
+    cassette = Keyword.fetch!(opts, :cassette)
+    tracked = %Job{cassette: cassette, deadline: Keyword.get(opts, :deadline)}
+
+    target =
+      case reply do
+        :call -> from
+        {:async, pid, ref} -> {:async, pid, ref}
+      end
+
+    send(state.writer, {:write, target, job, self(), tracked})
+    state = track(state, cassette, Keyword.fetch!(opts, :kind))
+
+    case reply do
+      :call -> {:noreply, state}
+      {:async, _pid, _ref} -> {:reply, :ok, state}
+    end
   end
 
   @impl GenServer
-  def handle_info({:written, from, result, referenced}, state) do
-    sweep(state.cache, referenced)
-    GenServer.reply(from, result)
+  def handle_info({:progress, cassette, done, total}, state) do
+    state =
+      case state.tracking do
+        %{^cassette => entry} ->
+          tracking = Map.put(state.tracking, cassette, %{entry | done: done, total: total})
+          update_status(%{state | tracking: tracking})
+
+        _other ->
+          state
+      end
+
     {:noreply, state}
   end
 
+  def handle_info({:written, from, result, referenced, tracked}, state) do
+    sweep(state.cache, referenced)
+
+    state =
+      state
+      |> commit(referenced)
+      |> settle(tracked, result)
+      |> update_status()
+
+    reply(from, result)
+    {:noreply, state}
+  end
+
+  defp reply({:async, pid, ref}, result),
+    do: send(pid, {:tama_dex_import, ref, async_reply(result)})
+
+  defp reply(from, result), do: GenServer.reply(from, result)
+
+  # A background import has no caller to re-raise in, so a crashed job is
+  # reported as an error.
+  defp async_reply({:ok, {_changed, reply}}), do: reply
+  defp async_reply({:ok, reply}), do: reply
+  defp async_reply(_crashed), do: {:error, :exception}
+
+  # Readiness
+
+  defp ready?(_state, nil), do: true
+
+  defp ready?(state, :index) do
+    MapSet.size(state.committed) > 0 or map_size(state.tracking) == 0
+  end
+
+  defp ready?(state, {:cassette, cassette}) do
+    ready?(state, :index) and
+      (MapSet.member?(state.committed, cassette) or not Map.has_key?(state.tracking, cassette))
+  end
+
+  defp track(state, cassette, kind) do
+    entry =
+      Map.get(state.tracking, cassette, %{
+        kind: kind,
+        count: 0,
+        done: 0,
+        total: 0,
+        sequence: state.sequence
+      })
+
+    tracking = Map.put(state.tracking, cassette, %{entry | count: entry.count + 1})
+    update_status(%{state | tracking: tracking, sequence: state.sequence + 1})
+  end
+
+  defp commit(state, {:ok, _digests, names}), do: %{state | committed: MapSet.new(names)}
+  defp commit(state, :unchanged), do: state
+
+  defp settle(state, nil, _result), do: state
+
+  defp settle(state, %Job{cassette: cassette}, result) do
+    {kind, tracking} =
+      case Map.fetch!(state.tracking, cassette) do
+        %{count: 1} = entry ->
+          {entry.kind, Map.delete(state.tracking, cassette)}
+
+        entry ->
+          {entry.kind, Map.put(state.tracking, cassette, %{entry | count: entry.count - 1})}
+      end
+
+    state = %{state | tracking: tracking}
+
+    case outcome(result) do
+      :ok ->
+        %{state | failures: Map.delete(state.failures, cassette), last: :ok}
+
+      {:failed, reason} ->
+        failures =
+          if MapSet.member?(state.committed, cassette),
+            do: Map.delete(state.failures, cassette),
+            else: Map.put(state.failures, cassette, {kind, reason})
+
+        %{state | failures: failures, last: {:failed, reason}}
+    end
+  end
+
+  defp outcome({:ok, {_changed, {:error, reason}}}), do: {:failed, error_kind(reason)}
+  defp outcome({:ok, {_changed, _reply}}), do: :ok
+  defp outcome(_crashed), do: {:failed, :exception}
+
+  defp error_kind(reason) when is_atom(reason), do: reason
+  defp error_kind(reason) when is_tuple(reason) and is_atom(elem(reason, 0)), do: elem(reason, 0)
+  defp error_kind(_reason), do: :error
+
+  defp update_status(state) do
+    case compute_status(state) do
+      status when status == state.status ->
+        state
+
+      status ->
+        :telemetry.execute([:tama_dex, :index, :status], %{}, %{status: status, index: self()})
+        %{state | status: status}
+    end
+  end
+
+  defp compute_status(state) do
+    cond do
+      MapSet.size(state.committed) > 0 ->
+        :ready
+
+      map_size(state.tracking) > 0 ->
+        {cassette, entry} =
+          Enum.min_by(state.tracking, fn {_cassette, entry} -> entry.sequence end)
+
+        {:importing, progress(cassette, entry)}
+
+      match?({:failed, _reason}, state.last) ->
+        state.last
+
+      true ->
+        :empty
+    end
+  end
+
+  defp progress(cassette, entry), do: %{cassette: cassette, done: entry.done, total: entry.total}
+
   defp sweep(_cache, :unchanged), do: :ok
 
-  defp sweep(cache, {:ok, digests}) do
+  defp sweep(cache, {:ok, digests, _names}) do
     for digest <- :ets.select(cache, [{{:"$1", :_}, [], [:"$1"]}]),
         not MapSet.member?(digests, digest) do
       :ets.delete(cache, digest)

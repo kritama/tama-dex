@@ -2,6 +2,7 @@ defmodule Tama.Dex.SearchTest do
   use ExUnit.Case, async: true
 
   import Tama.Dex.TestSupport.Documents
+  import Tama.Dex.TestSupport.Telemetry
 
   alias Tama.Dex.Index
   alias Tama.Dex.Search
@@ -527,7 +528,7 @@ defmodule Tama.Dex.SearchTest do
 
   test "search telemetry carries the query length, never its text" do
     index = incus!(start_index!())
-    ref = :telemetry_test.attach_event_handlers(self(), [[:tama_dex, :search, :stop]])
+    ref = attach_local([[:tama_dex, :search, :stop]])
 
     {:ok, _response} = Tama.Dex.search(index, "secret instance", scopes: ["incus.read"])
 
