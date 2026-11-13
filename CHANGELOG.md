@@ -64,3 +64,23 @@ The project follows Semantic Versioning and uses Conventional Commits.
 - Added README usage: starting the index, installing documents and
   cassettes, registering executors, search and execute, building a cassette
   and telemetry.
+
+### Performance
+
+Indexing times measured by `bench/import.exs` on a GitHub-hosted
+`ubuntu-latest` runner (x86_64, 4 schedulers), Elixir 1.19.5 and OTP 27, at
+commit c511505. Times are in milliseconds, the median and slowest of 5 runs.
+All are well within the 2 s target for a 1024-operation rebuild. Until an
+`opsmaru_incus` release publishes its documents, its row uses the
+`opsmaru_incus`-shaped test fixture (4 operations).
+
+| Documents | Operations | Case | Median | Slowest |
+| --- | ---: | --- | ---: | ---: |
+| Generated | 1024 | load (rebuild) | 454.3 | 504.1 |
+| Generated | 1024 | import, unpinned (rebuild) | 434.6 | 446.2 |
+| Generated | 1024 | import, pinned (copy) | 350.0 | 353.0 |
+| Generated | 1024 | cassette build | 992.8 | 992.8 |
+| opsmaru_incus fixture | 4 | load (rebuild) | 2.7 | 2.9 |
+| opsmaru_incus fixture | 4 | import, unpinned (rebuild) | 4.4 | 4.9 |
+| opsmaru_incus fixture | 4 | import, pinned (copy) | 3.4 | 3.9 |
+| opsmaru_incus fixture | 4 | cassette build | 30.0 | 30.0 |

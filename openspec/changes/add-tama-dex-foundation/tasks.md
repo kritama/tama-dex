@@ -62,7 +62,7 @@
 - [x] 8.1 Emit the load, import, search and execute `:start`/`:stop`/`:exception` events and the index `:recreated` and `:status` events, with metadata limited as in Decision 8. Test that the metadata holds no query text, inputs, results, schemas or file paths.
 - [x] 8.2 Write the README usage (start the index, load documents, register executors, wire the two tools), add `CHANGELOG.md`, write module docs for every public module, and run `mix docs` without warnings.
 - [x] 8.3 Add a release workflow modeled on `tama_mcp`'s `release.yml`. It publishes only from `main`, in the `hex` environment, with `HEX_API_KEY`. Running a release needs user authorization.
-- [ ] 8.4 Measure and record, in the changelog, rebuild and copy-mode import times for a 1024-operation fixture and for the opsmaru_incus documents on a GitHub-hosted runner, against the 2 s target in Decision 10. `bench/import.exs` measures them, and the CI `Import benchmark` job runs it on a GitHub-hosted runner and writes the table to the job summary. Until 9.1, the opsmaru_incus figures come from the opsmaru_incus-shaped fixture.
+- [x] 8.4 Measure and record, in the changelog, rebuild and copy-mode import times for a 1024-operation fixture and for the opsmaru_incus documents on a GitHub-hosted runner, against the 2 s target in Decision 10. `bench/import.exs` measures them, and the CI `Import benchmark` job runs it on a GitHub-hosted runner and writes the table to the job summary. Until 9.1, the opsmaru_incus figures come from the opsmaru_incus-shaped fixture. Recorded in the changelog's Performance section from the run at commit c511505: a 1024-operation rebuild takes a median of 454 ms, and a copy-mode import 350 ms.
 
 ## 9. Producer evidence
 
