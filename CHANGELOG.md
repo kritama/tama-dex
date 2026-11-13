@@ -56,3 +56,9 @@ The project follows Semantic Versioning and uses Conventional Commits.
   `[:tama_dex, :index, :status]` telemetry, per-cassette status in
   `cassettes/1`, and `not_ready` from search, describe, execute and the MCP
   handlers while nothing is committed.
+- Added `Tama.Dex.Telemetry`, which documents every event. Span
+  `:exception` events carry the exception's module and argument-free
+  stacktraces, so no caller data reaches telemetry handlers.
+- Added README usage: starting the index, installing documents and
+  cassettes, registering executors, search and execute, building a cassette
+  and telemetry.

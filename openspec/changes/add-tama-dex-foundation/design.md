@@ -421,6 +421,13 @@ with a `kind` and `dispatched`.
 - **Metadata:** limited to the cassette, source, operation ID, import mode,
   `changed`, status, counts, result kind and durations. Never query text
   beyond its length, inputs, results, schemas or file paths.
+- **Exceptions:** spans use tama-dex's own span function rather than
+  `:telemetry.span/3`, because an `:exception` event's raw reason and
+  stacktrace can carry caller data, such as a function clause's arguments.
+  Its `reason` is reduced to the exception's module or an atom, and each
+  stacktrace entry keeps its arity in place of its arguments. The caller
+  still receives the original exception. `Tama.Dex.Telemetry` documents
+  every event.
 
 ### 9. Cassettes
 

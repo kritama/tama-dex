@@ -62,6 +62,30 @@ jobs:
       - name: Build Hex archive
         run: mix hex.build
 
+  benchmark:
+    name: Import benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: mise.toml
+          version-type: strict
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      # Release evidence for the 2 s rebuild target (design Decision 10).
+      # It reports, and warns when over the target, but never fails.
+      - name: Measure indexing times
+        run: mix run bench/import.exs | tee -a "${GITHUB_STEP_SUMMARY}"
+
   openspec:
     name: OpenSpec
     runs-on: ubuntu-latest

@@ -29,6 +29,7 @@ defmodule Tama.Dex do
   alias Tama.Dex.Index.Store
   alias Tama.Dex.Profile
   alias Tama.Dex.Search
+  alias Tama.Dex.Telemetry
 
   @cassette_name ~r/^[a-z][a-z0-9_]{0,63}$/
 
@@ -112,7 +113,7 @@ defmodule Tama.Dex do
     cassette = cassette!(Keyword.get(opts, :cassette))
     deadline = Job.deadline(Keyword.get(opts, :timeout))
 
-    :telemetry.span([:tama_dex, :load], %{cassette: cassette}, fn ->
+    Telemetry.span([:tama_dex, :load], %{cassette: cassette}, fn ->
       result =
         case Profile.validate(document, limits: Index.limits(index)) do
           {:ok, document} -> install(index, cassette, document, deadline)
@@ -327,7 +328,7 @@ defmodule Tama.Dex do
       limit: options.limit
     }
 
-    :telemetry.span([:tama_dex, :search], metadata, fn ->
+    Telemetry.span([:tama_dex, :search], metadata, fn ->
       case Index.read_ready(index, :index, &Search.search(&1, options)) do
         {:ok, response} ->
           {{:ok, response},
@@ -428,7 +429,7 @@ defmodule Tama.Dex do
 
     metadata = %{cassette: options.cassette, operation_id: options.operation_id}
 
-    :telemetry.span([:tama_dex, :execute], metadata, fn ->
+    Telemetry.span([:tama_dex, :execute], metadata, fn ->
       {outcome, source} =
         Execute.run(index, options.cassette, options.operation_id, input, options)
 

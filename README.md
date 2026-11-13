@@ -3,9 +3,8 @@
 Index and search for operation catalogues, so an MCP server can expose just two
 tools, `search` and `execute`, in place of one tool per operation.
 
-> Pre-release. The design is in
-> `openspec/changes/add-tama-dex-foundation/`, and implementation is in
-> progress.
+> Pre-release: `0.1.0` is not yet published. The design is in
+> `openspec/changes/add-tama-dex-foundation/`.
 
 ## Why
 
@@ -57,6 +56,124 @@ tama-dex is a library. It starts nothing on load, holds no listener, never
 fetches documents or cassettes over the network, and never runs an operation itself. It
 doesn't depend on `tama_mcp`. It provides the two tool definitions as data
 for the host's MCP server.
+
+## Installation
+
+```elixir
+def deps do
+  [
+    {:tama_dex, "~> 0.1"}
+  ]
+end
+```
+
+## Usage
+
+### Start an index
+
+The host starts the index under its own supervisor, with an explicit
+database path. Loading the dependency starts nothing.
+
+```elixir
+children = [
+  {Tama.Dex.Index, path: "/var/lib/my_host/tama-dex.sqlite3", name: MyHost.Dex}
+]
+```
+
+Use `path: :memory` in tests. The database is derived data: one with an
+unknown storage schema version is recreated empty, and the host installs its
+documents again.
+
+### Install documents and cassettes
+
+Load a profile document into a cassette, a namespace the host names. A load
+validates the whole document and replaces that source atomically. An
+unchanged document is a no-op.
+
+```elixir
+{:ok, _loaded} =
+  Tama.Dex.load(MyHost.Dex, MyHost.Runtime.operations_document(), cassette: "macus")
+```
+
+Or import a cassette a producer published, from a local file the host
+supplies. Pinning the published SHA-256 lets the prebuilt rows be copied.
+Without a pin, the index is rebuilt from the documents embedded in the
+cassette.
+
+```elixir
+{:ok, %{cassette: "opsmaru_incus", mode: :copy}} =
+  Tama.Dex.import(MyHost.Dex, "priv/cassettes/opsmaru_incus-1.4.0.tama-cassette",
+    sha256: "9f2c…"
+  )
+```
+
+To keep startup bounded, pass `timeout:` (the work rolls back when it runs
+out) or `async: true` (returns `{:ok, ref}`, then sends
+`{:tama_dex_import, ref, result}`). `Tama.Dex.Index.status/1` and
+`Tama.Dex.cassettes/1` report readiness. While nothing is committed, search
+and execute answer `not_ready` instead of waiting.
+
+### Register executors
+
+tama-dex never runs an operation. `execute` validates the call, then hands it
+to the executor the host registered for the operation's source:
+
+```elixir
+defmodule MyHost.IncusExecutor do
+  @behaviour Tama.Dex.Executor
+
+  @impl Tama.Dex.Executor
+  def execute(%Tama.Dex.Call{} = call, input) do
+    OpsmaruIncus.run(call.operation_id, input,
+      authorizer: Keyword.fetch!(call.opts, :authorizer),
+      scopes: call.scopes
+    )
+  end
+end
+
+def executors do
+  %{"opsmaru_incus" => {MyHost.IncusExecutor, authorizer: MyHost.Authorizer}}
+end
+```
+
+### Search and execute
+
+Both take the caller's verified scopes. Search only shows operations those
+scopes allow, and execute checks them again on every call.
+
+```elixir
+{:ok, %{results: [%{cassette: "opsmaru_incus", operation_id: "incus_instance_list"} | _]}} =
+  Tama.Dex.search(MyHost.Dex, "list instances", scopes: caller.scopes)
+
+{:ok, %{result: result}} =
+  Tama.Dex.execute(MyHost.Dex, "opsmaru_incus", "incus_instance_list", %{},
+    scopes: caller.scopes,
+    executors: executors(),
+    context: caller
+  )
+```
+
+An error is a `Tama.Dex.Error` with a `kind` and `dispatched`.
+`dispatched: true` means the executor was called, so the operation may have
+taken effect. tama-dex never retries.
+
+### Build a cassette
+
+A producer's CI builds a cassette from its profile documents and publishes
+it with the printed SHA-256:
+
+```console
+mix tama.dex.cassette --name acme --version 1.0.0 \
+  --document Acme.Operations.openapi \
+  --output acme-1.0.0.tama-cassette
+```
+
+### Telemetry
+
+tama-dex emits `[:tama_dex, :load | :import | :search | :execute, ...]` spans
+and `[:tama_dex, :index, :recreated | :status]` events. Their metadata never
+holds query text, inputs, results, schemas or file paths. See
+`Tama.Dex.Telemetry`.
 
 ## MCP tools
 

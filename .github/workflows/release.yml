@@ -1,0 +1,126 @@
+name: Release
+
+# Publishes to Hex from main only, after a release branch is finished into
+# main. Merging to main is the release authorization.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify, tag, and publish release
+    if: github.repository == 'kritama/tama-dex' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: hex
+    permissions:
+      contents: write
+    outputs:
+      published: ${{ steps.tag.outputs.published }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: mise.toml
+          version-type: strict
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Audit Hex dependencies
+        run: mix hex.audit
+
+      - name: Run package checks
+        run: mix precommit
+
+      - name: Build Dialyzer PLT
+        run: mix dialyzer --plt
+
+      - name: Run Dialyzer
+        run: mix dialyzer --no-check
+
+      - name: Build documentation
+        run: mix docs
+
+      - name: Build Hex package
+        run: mix hex.build
+
+      - name: Tag release
+        id: tag
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        shell: bash
+        run: |
+          version="$(mix run --no-compile --no-start -e 'IO.write(Mix.Project.config()[:version])')"
+          tag="v${version}"
+
+          if [[ "${version}" == *-dev ]]; then
+            echo "::error::${version} is a development version. Set the release version on the release branch before merging to main."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "Tag ${tag} already exists; not a release push."
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if ! grep -qE "^## \[.*${version}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no ${version} section. Finalize the release branch changelog before merging to main."
+            exit 1
+          fi
+
+          if [[ -z "${HEX_API_KEY}" ]]; then
+            echo "::error::HEX_API_KEY is not configured in the hex environment"
+            exit 1
+          fi
+
+          git tag "${tag}"
+          git push origin "${tag}"
+          {
+            echo "published=true"
+            echo "version=${version}"
+            echo "tag=${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Publish package and documentation
+        if: steps.tag.outputs.published == 'true'
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes
+
+      - name: Create GitHub release
+        if: steps.tag.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        shell: bash
+        run: |
+          notes="$(awk -v ver="${VERSION}" '
+            index($0, "## [") == 1 && index($0, "[" ver "]") > 0 {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md)"
+
+          if [[ -z "${notes}" ]]; then
+            notes="Release ${TAG}"
+          fi
+
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --target "$(git rev-parse HEAD)" \
+            --notes-file <(printf '%s\n' "${notes}")

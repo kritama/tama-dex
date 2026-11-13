@@ -60,6 +60,24 @@ defmodule Tama.Dex.MixProject do
         "docs/tama-operations-profile.md",
         "CHANGELOG.md",
         "LICENSE"
+      ],
+      groups_for_modules: [
+        API: [
+          Tama.Dex,
+          Tama.Dex.Index,
+          Tama.Dex.Cassette,
+          Tama.Dex.MCP,
+          Tama.Dex.Executor,
+          Tama.Dex.Telemetry
+        ],
+        Data: [
+          Tama.Dex.Profile,
+          Tama.Dex.Profile.Issue,
+          Tama.Dex.Document,
+          Tama.Dex.Operation,
+          Tama.Dex.Call,
+          Tama.Dex.Error
+        ]
       ]
     ]
   end

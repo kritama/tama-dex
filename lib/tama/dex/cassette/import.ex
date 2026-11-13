@@ -17,6 +17,7 @@ defmodule Tama.Dex.Cassette.Import do
   alias Tama.Dex.Index.Job
   alias Tama.Dex.Index.SQL
   alias Tama.Dex.Index.Store
+  alias Tama.Dex.Telemetry
 
   @operation_columns """
   source, operation_id, summary, description, tags, scopes, destructive, deprecated,
@@ -36,7 +37,7 @@ defmodule Tama.Dex.Cassette.Import do
   @spec run(SQL.conn(), String.t(), map(), Job.t()) ::
           {:changed | :unchanged, {:ok, map()} | {:error, term()}}
   def run(conn, path, options, job) do
-    :telemetry.span([:tama_dex, :import], %{cassette: options.name}, fn ->
+    Telemetry.span([:tama_dex, :import], %{cassette: options.name}, fn ->
       result = Job.guard(fn -> install(conn, path, options, job) end)
       {result, metadata(options.name, result)}
     end)
