@@ -23,11 +23,12 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 | `x-tama-profile` | MUST be exactly `tama-operations/1`. |
 | `x-tama-source` | MUST match `^[a-z][a-z0-9_]{0,63}$`. This is the stable source ID that executors are registered under, for example `opsmaru_incus` or `macus`. |
 | `paths` | MUST contain only operation paths (see below). |
-| `components.schemas` | MAY hold shared schemas. A `$ref` MUST point into `#/components/schemas/` of the same document. External references are rejected. |
+| `components.schemas` | MAY hold shared schemas, named as OpenAPI requires (`^[a-zA-Z0-9._-]+$`). A `$ref` MUST point into `#/components/schemas/` of the same document. External references are rejected. |
 | `webhooks` | MUST be absent. |
 
 Other OpenAPI fields, such as `servers`, `tags`, `security` and
-`externalDocs`, are allowed and ignored.
+`externalDocs`, and other `x-` extensions are allowed at the document level
+and ignored. Unknown `x-tama-*` keys are rejected.
 
 The whole serialized document MUST be at most 4 MiB and hold at most 1024
 operations.
@@ -35,8 +36,13 @@ operations.
 ## Operations
 
 Each operation is one path item, `/operations/{operationId}` with the literal
-operation ID, holding exactly one `post` operation. The path and method are
-naming conventions only. tama-dex never makes HTTP calls to them.
+operation ID, holding exactly one `post` operation and nothing else. The path
+and method are naming conventions only. tama-dex never makes HTTP calls to
+them.
+
+An operation MAY hold only the fields in this table and other `x-`
+extensions. HTTP fields such as `parameters`, `security` or `servers` are
+rejected.
 
 | Field | Rule |
 |---|---|
@@ -45,8 +51,8 @@ naming conventions only. tama-dex never makes HTTP calls to them.
 | `description` | MUST be present, at most 4096 characters. |
 | `tags` | MAY list up to 16 unique strings of at most 64 characters, for example the resource name. |
 | `deprecated` | MAY be `true`. Deprecated operations stay indexed and are marked in results. |
-| `requestBody` | MUST be `required: true`, with exactly one `application/json` media type whose `schema` is an object schema (`"type": "object"`). |
-| `responses` | MUST contain `"200"` with an `application/json` schema for a successful result. It MAY contain `"default"` with an `application/json` schema for an error result. No other response keys are allowed. |
+| `requestBody` | MUST be `required: true`, with exactly one `application/json` media type whose `schema` is an object schema (`"type": "object"`). It MAY have a `description`. |
+| `responses` | MUST contain `"200"` with an `application/json` schema for a successful result. It MAY contain `"default"` with an `application/json` schema for an error result. No other response keys are allowed. Each response has a `description`, as OpenAPI requires. |
 | `x-tama-scopes` | MUST be a non-empty array of unique scope tokens matching `^[A-Za-z0-9._:-]{1,128}$`. A caller needs **every** listed scope. |
 | `x-tama-destructive` | MUST be a boolean. |
 | `x-tama-confirmation` | MAY be `{"field": <name>, "description": <text>}`. `field` MUST name a required top-level string property of the input schema. `description` (at most 256 characters) tells the caller what value to send, for example "the full fingerprint". |
@@ -63,7 +69,13 @@ Keywords inside `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else` or
 only inside `allOf` has no top-level properties, and can't name a
 confirmation field.
 
-Each request or response schema MUST be at most 256 KiB once serialized.
+`$ref` and `$dynamicRef` MUST be JSON Pointers into `#/components/schemas/`
+of the same document, such as `#/components/schemas/DeleteImage`, and MUST
+resolve. Schemas MUST NOT declare `$id`, which would change what those
+pointers resolve against. A media type object holds only its `schema`.
+
+Each request or response schema, together with the components it
+references, MUST be at most 256 KiB once serialized.
 
 ## Execution semantics
 
@@ -110,7 +122,7 @@ Each request or response schema MUST be at most 256 KiB once serialized.
           "content": {"application/json": {"schema": {"type": "object", "properties": {"fingerprint": {"type": "string"}, "confirm": {"type": "string"}}, "required": ["fingerprint", "confirm"], "additionalProperties": false}}}
         },
         "responses": {
-          "200": {"description": "Result", "content": {"application/json": {"schema": {"type": "object"}}}},
+          "200": {"description": "Result", "content": {"application/json": {"schema": {"type": "object", "properties": {"operation_id": {"type": "string"}, "status": {"type": "string"}}, "required": ["operation_id", "status"]}}}},
           "default": {"description": "Error", "content": {"application/json": {"schema": {"type": "object", "required": ["error"]}}}}
         }
       }

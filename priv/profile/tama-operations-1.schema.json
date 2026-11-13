@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kritama/tama-dex/blob/develop/priv/profile/tama-operations-1.schema.json",
+  "title": "Tama operations profile, tama-operations/1",
+  "description": "The shape of a tama-operations/1 document, an OpenAPI 3.1 document with x-tama-* extensions. Rules JSON Schema can't express, such as a path suffix matching its operationId, are applied by Tama.Dex.Profile.validate/1. See docs/tama-operations-profile.md.",
+  "type": "object",
+  "required": ["openapi", "info", "x-tama-profile", "x-tama-source", "paths"],
+  "properties": {
+    "openapi": {"type": "string", "pattern": "^3\\.1\\.[0-9]+$"},
+    "jsonSchemaDialect": {
+      "enum": [
+        "https://spec.openapis.org/oas/3.1/dialect/base",
+        "https://json-schema.org/draft/2020-12/schema"
+      ]
+    },
+    "info": {
+      "type": "object",
+      "required": ["title", "version"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "x-tama-profile": {"const": "tama-operations/1"},
+    "x-tama-source": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "paths": {
+      "type": "object",
+      "patternProperties": {
+        "^/operations/[a-z][a-z0-9_]{0,127}$": {"$ref": "#/$defs/pathItem"}
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "properties": {
+        "schemas": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[a-zA-Z0-9._-]+$"},
+          "additionalProperties": {"type": ["object", "boolean"]}
+        }
+      }
+    },
+    "webhooks": false
+  },
+  "patternProperties": {
+    "^x-tama-(?!(?:profile|source)$)": false
+  },
+  "$defs": {
+    "pathItem": {
+      "type": "object",
+      "required": ["post"],
+      "properties": {
+        "post": {"$ref": "#/$defs/operation"}
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "summary",
+        "description",
+        "requestBody",
+        "responses",
+        "x-tama-scopes",
+        "x-tama-destructive"
+      ],
+      "properties": {
+        "operationId": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$"},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 120},
+        "description": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "tags": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 64}
+        },
+        "deprecated": {"type": "boolean"},
+        "requestBody": {
+          "type": "object",
+          "required": ["required", "content"],
+          "properties": {
+            "description": {"type": "string"},
+            "required": {"const": true},
+            "content": {"$ref": "#/$defs/jsonContent"}
+          },
+          "additionalProperties": false
+        },
+        "responses": {
+          "type": "object",
+          "required": ["200"],
+          "properties": {
+            "200": {"$ref": "#/$defs/response"},
+            "default": {"$ref": "#/$defs/response"}
+          },
+          "additionalProperties": false
+        },
+        "x-tama-scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}
+        },
+        "x-tama-destructive": {"type": "boolean"},
+        "x-tama-confirmation": {
+          "type": "object",
+          "required": ["field", "description"],
+          "properties": {
+            "field": {"type": "string", "minLength": 1},
+            "description": {"type": "string", "minLength": 1, "maxLength": 256}
+          },
+          "additionalProperties": false
+        },
+        "x-tama-bounds": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "x-tama-identity": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "patternProperties": {
+        "^x-(?!tama-)": true
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": ["description", "content"],
+      "properties": {
+        "description": {"type": "string"},
+        "content": {"$ref": "#/$defs/jsonContent"}
+      },
+      "additionalProperties": false
+    },
+    "jsonContent": {
+      "type": "object",
+      "required": ["application/json"],
+      "properties": {
+        "application/json": {
+          "type": "object",
+          "required": ["schema"],
+          "properties": {
+            "schema": {"type": "object"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

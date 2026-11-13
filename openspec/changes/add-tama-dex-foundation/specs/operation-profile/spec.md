@@ -90,9 +90,10 @@ Operation schemas SHALL be validated as JSON Schema 2020-12. `jsonSchemaDialect`
 MAY be absent; otherwise it MUST be the OAS 3.1 base dialect or the 2020-12
 meta-schema URI.
 
-A `$ref` MUST resolve within `#/components/schemas/` of the same document.
-External references MUST be rejected. Every operation schema MUST compile
-before the document is accepted.
+A `$ref` or `$dynamicRef` MUST be a JSON Pointer into `#/components/schemas/`
+of the same document, and MUST resolve. External references MUST be rejected.
+Schemas MUST NOT declare `$id`. Every operation schema MUST compile before the
+document is accepted.
 
 #### Scenario: External reference
 
@@ -106,7 +107,8 @@ It SHALL report every issue it finds, each with a JSON pointer, a stable code
 and a message of at most 256 bytes.
 
 Documents MUST be at most 4 MiB once serialized and hold at most 1024
-operations. Each request or response schema MUST be at most 256 KiB.
+operations. Each request or response schema, together with the components it
+references, MUST be at most 256 KiB.
 
 #### Scenario: Several defects
 
