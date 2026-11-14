@@ -11,7 +11,7 @@ files.
 
 - Every document SHALL be validated, and sources or IDs duplicated within the
   cassette SHALL be rejected before writing.
-- The file SHALL hold the version 1 index tables, a manifest (format, cassette
+- The file SHALL hold the current index tables, a manifest (format, cassette
   name and version, tama-dex version, index schema version, SQLite version,
   profile, content digest) and each source's canonical document with its
   digest.

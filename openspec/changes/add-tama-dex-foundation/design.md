@@ -231,7 +231,7 @@ namespace.
   above would barely change, so this can be revisited if a host needs
   zero-copy startup or many large cassettes.
 
-### 4. Storage schema (version 1)
+### 4. Storage schema (version 2)
 
 ```sql
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);            -- schema_version = 1
@@ -270,13 +270,16 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
 - Every cassette shares the one FTS table, so one ranking covers all
   cassettes' operations.
 - On open, a missing `meta` table means the database is created. A
-  `schema_version` other than 1 means every table is dropped and recreated
+  `schema_version` other than 2 means every table is dropped and recreated
   empty, a `{:recreated, old}` telemetry event fires, and the host reloads its
   documents. A newer version is never written by older code.
 - The schema version covers both the table definitions and how rows are
   derived from documents: canonical JSON, bundled schemas, the FTS text and
   any truncation. A change to either needs a new version, so rows built by
   two tama-dex releases with the same schema version are interchangeable.
+- Version 1 was used only during development, with a different
+  `operations` table. Version 2 is the first released, so indexes and
+  cassettes built during development are recreated or rebuilt.
 
 ### 5. Search
 
@@ -458,7 +461,7 @@ imports. The user's target flow:
    downloaded at startup, by Macus or by tama-dex.
 
 - **Format `tama-cassette/1`:** one SQLite file holding one cassette: the
-  version 1 index tables, whose `cassette` column holds only its name, plus:
+  current index tables, whose `cassette` column holds only its name, plus:
   - `cassette_manifest`, with the format, cassette name and version, tama-dex
     version, index schema version, SQLite version, profile and content
     digest;

@@ -46,7 +46,7 @@ defmodule Tama.Dex.CassetteTest do
                  "opsmaru_incus",
                  "0.2.0",
                  _tama_dex,
-                 1,
+                 2,
                  _sqlite,
                  profile,
                  digest
@@ -167,7 +167,7 @@ defmodule Tama.Dex.CassetteTest do
                format: "tama-cassette/1",
                name: "opsmaru_incus",
                version: "0.2.0",
-               index_schema_version: 1,
+               index_schema_version: 2,
                profile: "tama-operations/1",
                sha256: sha256,
                sources: [

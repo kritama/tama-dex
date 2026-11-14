@@ -11,7 +11,9 @@ defmodule Tama.Dex.Index.Connection do
   alias Exqlite.Sqlite3
   alias Tama.Dex.Index.SQL
 
-  @schema_version 1
+  # Version 1 was only used during development, with a different
+  # operations table, so its databases and cassettes are rebuilt too.
+  @schema_version 2
   @busy_timeout 5_000
 
   @tables """

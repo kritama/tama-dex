@@ -18,7 +18,7 @@ The project follows Semantic Versioning and uses Conventional Commits.
   SHA-256 digest and standalone bundled schemas.
 - Added the host-supervised `Tama.Dex.Index`, a SQLite index (a file
   created with mode 0600 in WAL mode, or `:memory`) with separate reader
-  and writer connections, storage schema version 1 that is recreated empty
+  and writer connections, storage schema version 2 that is recreated empty
   when unknown, and a lazily filled compiled-schema cache.
 - Added cassette namespaces with `Tama.Dex.load/3`, `unload/2` and
   `cassettes/1`. A load validates the whole document, replaces one source of
