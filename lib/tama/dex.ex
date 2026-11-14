@@ -281,9 +281,10 @@ defmodule Tama.Dex do
   ranking.
 
   `query` is caller text of at most 512 bytes, or `nil`. It is reduced to
-  letter-and-digit terms, each matched as a prefix, all of which must match.
-  Raw FTS5 syntax never reaches SQLite, so quotes, `NEAR`, `*`, `:`, `-` and
-  `OR` in the text are inert. Text with no term lists operations in
+  terms of letters and digits, each matched as a prefix, all of which must
+  match. FTS5 tokenizes the terms as it tokenized the indexed text, so text
+  in any script matches. Raw FTS5 syntax never reaches SQLite, so quotes,
+  `NEAR`, `*`, `:`, `-` and `OR` in the text are inert. Text with no term lists operations in
   `(cassette, operation_id)` order.
 
   Matches are ranked by operation ID, then summary, tags, description and

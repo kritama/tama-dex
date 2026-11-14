@@ -72,10 +72,20 @@ jobs:
             exit 1
           fi
 
+          # An existing tag is not proof that the release finished: publishing
+          # or the GitHub release may have failed after the tag was pushed. A
+          # tag at this commit resumes the steps still missing. A tag at
+          # another commit means this push is not a release.
           if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
-            echo "Tag ${tag} already exists; not a release push."
-            echo "published=false" >> "${GITHUB_OUTPUT}"
-            exit 0
+            git fetch --quiet --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
+
+            if [[ "$(git rev-list -n 1 "${tag}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "Tag ${tag} is at another commit; not a release push."
+              echo "published=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+
+            echo "Tag ${tag} is at this commit; resuming any release steps still missing."
           fi
 
           if ! grep -qE "^## \[.*${version}\]" CHANGELOG.md; then
@@ -88,16 +98,38 @@ jobs:
             exit 1
           fi
 
-          git tag "${tag}"
-          git push origin "${tag}"
+          if ! git rev-parse --quiet --verify "refs/tags/${tag}" >/dev/null; then
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi
+
           {
             echo "published=true"
             echo "version=${version}"
             echo "tag=${tag}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Publish package and documentation
+      - name: Check for the Hex release
+        id: hex
         if: steps.tag.outputs.published == 'true'
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        shell: bash
+        run: |
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "https://hex.pm/api/packages/tama_dex/releases/${VERSION}")"
+
+          case "${status}" in
+            200) echo "exists=true" >> "${GITHUB_OUTPUT}" ;;
+            404) echo "exists=false" >> "${GITHUB_OUTPUT}" ;;
+            *)
+              echo "::error::Hex answered ${status} when asked for tama_dex ${VERSION}"
+              exit 1
+              ;;
+          esac
+
+      - name: Publish package and documentation
+        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.exists == 'false'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
         run: mix hex.publish --yes
@@ -110,6 +142,11 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         shell: bash
         run: |
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "GitHub release ${TAG} already exists."
+            exit 0
+          fi
+
           notes="$(awk -v ver="${VERSION}" '
             index($0, "## [") == 1 && index($0, "[" ver "]") > 0 {found=1; next}
             found && /^## / {exit}

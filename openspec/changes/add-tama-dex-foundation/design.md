@@ -248,7 +248,6 @@ CREATE TABLE operations (id INTEGER PRIMARY KEY, cassette TEXT NOT NULL, source 
   input_schema TEXT NOT NULL, input_schema_digest TEXT NOT NULL,
   success_schema TEXT NOT NULL, success_schema_digest TEXT NOT NULL,
   error_schema TEXT, error_schema_digest TEXT, extensions TEXT,
-  token_count INTEGER NOT NULL CHECK (token_count >= 0),
   UNIQUE (cassette, operation_id),
   FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE);
 CREATE INDEX operations_source ON operations (cassette, source);
@@ -270,9 +269,6 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   limitations.
 - Every cassette shares the one FTS table, so one ranking covers all
   cassettes' operations.
-- `token_count` is the operation's token count across its FTS columns, as
-  the `unicode61` tokenizer splits them. Search averages it over the
-  operations a search could return (Decision 5).
 - On open, a missing `meta` table means the database is created. A
   `schema_version` other than 1 means every table is dropped and recreated
   empty, a `{:recreated, old}` telemetry event fires, and the host reloads its
@@ -285,8 +281,12 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
 ### 5. Search
 
 - **Query:** the caller's text (at most 512 bytes) is split into terms of
-  letters and digits. Each term is quoted and given a prefix wildcard
-  (`"inst"*`), and terms are joined with AND. Raw FTS5 syntax never reaches
+  letters and digits, keeping any combining marks within them. Each term
+  is quoted and given a prefix wildcard (`"inst"*`), and terms are joined
+  with AND. FTS5 tokenizes each quoted term with the index's tokenizer, so
+  the query folds and splits as the indexed text did in every script:
+  `가` finds `가상`, and `हिन्दी` becomes the phrase FTS5 indexed for it. No
+  tokenizer is re-implemented in Elixir. Raw FTS5 syntax never reaches
   SQLite, so `"`, `NEAR`, `*`, `:`, `-` and `OR` from callers are inert.
   Longer text raises `ArgumentError` (`invalid_arguments` from the MCP
   handler), and text with no terms is an empty query.
@@ -299,13 +299,14 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
   passing the caller's scopes and filters. FTS5's own `bm25()` takes its
   statistics from the whole table, so hidden operations would change which
   terms count as rare and could reorder visible results. Instead, in one
-  read transaction, the search reads the candidates' count and mean
-  `token_count`, counts the candidates matching each term, and fetches the
-  matching candidates' FTS text. It scores them in Elixir, counting each
-  term's prefix matches per column after tokenizing as `unicode61` does
-  (case-folded, diacritics removed), then fetches the top `limit` rows in
-  full. A search matching all 1024 operations of a full document takes
-  tens of milliseconds.
+  read transaction, the search finds the candidates matching every term,
+  reads the candidates' count and mean length, and counts the candidates
+  matching each term. Lengths come from FTS5's own per-row token counts in
+  its `operations_fts_docsize` shadow table (one SQLite varint per column).
+  Each term's frequency in each column of a matched operation is the number
+  of matches FTS5's `highlight()` marks there. It scores them in Elixir,
+  then fetches the top `limit` rows in full. A search matching all 1024
+  operations of a full document takes tens of milliseconds.
 - **Filters:**
   - `scopes:` is required. An operation is visible only if all its scopes
     are in the caller's verified scopes.

@@ -36,6 +36,12 @@ defmodule Tama.Dex.SearchTest do
 
   defp ids(response), do: Enum.map(response.results, &{&1.cassette, &1.operation_id})
 
+  defp query(conn, sql) do
+    {:ok, statement} = Exqlite.Sqlite3.prepare(conn, sql)
+    {:ok, rows} = Exqlite.Sqlite3.fetch_all(conn, statement)
+    Map.new(rows, fn [key, value] -> {key, value} end)
+  end
+
   defp put(document, path, value),
     do: put_in(document, Enum.map(path, &Access.key(&1, %{})), value)
 
@@ -133,6 +139,61 @@ defmodule Tama.Dex.SearchTest do
     end
   end
 
+  describe "text in any script" do
+    # Each summary, and words a caller might type to find it.
+    @texts %{
+      "hangul_op" => {"가상 머신 서버를 시작합니다", ["가", "가상", "머신", "서버를"]},
+      "vietnamese_op" => {"Khởi động máy chủ Tiếng Việt", ["Tiếng", "VIỆT", "khởi", "chủ"]},
+      "hindi_op" => {"हिन्दी सर्वर शुरू करें", ["हिन्दी", "सर्व", "शुरू"]},
+      "greek_op" => {"Εκκίνηση διακομιστή Ωμέγα", ["Εκκίνηση", "ωμέγα", "διακομ"]},
+      "arabic_op" => {"تشغيل الخادم مَرْحَبًا", ["الخادم", "مَرْحَبًا", "تشغيل"]},
+      "latin_op" => {"Größe naïve café", ["größe", "naive", "CAFÉ", "cafe"]}
+    }
+
+    setup do
+      summaries = Map.new(@texts, fn {id, {summary, _queries}} -> {id, summary} end)
+
+      document = document("scripts", Map.keys(summaries), summary: &Map.fetch!(summaries, &1))
+
+      %{index: load!(start_index!(), document, "scripts")}
+    end
+
+    test "is found by the words it contains", %{index: index} do
+      for {id, {_summary, queries}} <- @texts, query <- queries do
+        assert {"scripts", id} in ids(search!(index, query, scopes: ["test.read"])), query
+      end
+    end
+
+    @tag :tmp_dir
+    test "is ranked from the lengths FTS5 counted", %{tmp_dir: dir} do
+      # Each operation's length, decoded from FTS5's docsize, equals the
+      # number of tokens FTS5 indexed for it.
+      summaries = Map.new(@texts, fn {id, {summary, _queries}} -> {id, summary} end)
+      document = document("scripts", Map.keys(summaries), summary: &Map.fetch!(summaries, &1))
+      path = Path.join(dir, "index.sqlite3")
+      index = start_supervised!({Index, path: path}, id: make_ref())
+      load!(index, document, "scripts")
+
+      {:ok, conn} = Exqlite.Sqlite3.open(path)
+
+      try do
+        :ok =
+          Exqlite.Sqlite3.execute(
+            conn,
+            "CREATE VIRTUAL TABLE temp.vocab USING fts5vocab(main, operations_fts, instance)"
+          )
+
+        counted = query(conn, "SELECT doc, count(*) FROM temp.vocab GROUP BY doc")
+        decoded = query(conn, "SELECT id, sz FROM operations_fts_docsize")
+
+        assert map_size(counted) == map_size(summaries)
+        assert Map.new(decoded, fn {id, size} -> {id, Search.token_total(size)} end) == counted
+      after
+        Exqlite.Sqlite3.close(conn)
+      end
+    end
+  end
+
   describe "query text" do
     setup do
       %{index: start_index!() |> incus!() |> macus!()}
@@ -140,11 +201,13 @@ defmodule Tama.Dex.SearchTest do
 
     test "is reduced to quoted prefix terms joined with AND" do
       assert Search.match_expression(~S|instance" OR NEAR(* -delete|) ==
-               ~S|"instance"* AND "or"* AND "near"* AND "delete"*|
+               ~S|"instance"* AND "OR"* AND "NEAR"* AND "delete"*|
 
-      assert Search.match_expression("Fingerprint fingerprint") == ~S|"fingerprint"*|
-      # Diacritics are folded, as FTS5's unicode61 tokenizer folds them.
-      assert Search.match_expression("Größe 42") == ~S|"große"* AND "42"*|
+      assert Search.match_expression("Fingerprint fingerprint") == ~S|"Fingerprint"*|
+      # Runs are left for FTS5 to fold, with the index's own tokenizer, and
+      # combining marks stay within their run.
+      assert Search.match_expression("Größe 42") == ~S|"Größe"* AND "42"*|
+      assert Search.match_expression("가 हिन्दी") == ~S|"가"* AND "हिन्दी"*|
       assert Search.match_expression(~S|"*-:()|) == nil
       assert Search.match_expression("") == nil
     end

@@ -33,9 +33,12 @@
 Search SHALL use SQLite FTS5 over each operation's ID, summary, tags,
 description and input property names and descriptions.
 
-- Caller text of at most 512 bytes SHALL be reduced to letter-and-digit terms,
-  each quoted, given a prefix wildcard and joined with AND. Longer text SHALL
-  be rejected with an argument error.
+- Caller text of at most 512 bytes SHALL be reduced to terms of letters and
+  digits, keeping any combining marks within them, each quoted, given a
+  prefix wildcard and joined with AND. Longer text SHALL be rejected with an
+  argument error.
+- Query terms SHALL be tokenized by the index's own tokenizer, so a term
+  folds and splits exactly as indexed text does, in any script.
 - Text with no letter-or-digit term SHALL be treated as an empty query.
 - Caller text MUST NOT reach SQLite as FTS5 query syntax.
 - Search SHALL cover every cassette in the index in one ranking, unless the
@@ -50,6 +53,11 @@ description and input property names and descriptions.
 
 - **WHEN** a caller searches for `instance" OR NEAR(* -delete`
 - **THEN** the search succeeds, treating the text only as the terms `instance`, `or`, `near` and `delete`
+
+#### Scenario: Text in another script
+
+- **WHEN** an operation's summary is `가상 머신 서버를 시작합니다` and a caller with its scopes searches for `가`
+- **THEN** the search returns that operation
 
 #### Scenario: Punctuation-only query
 

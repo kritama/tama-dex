@@ -23,12 +23,12 @@ defmodule Tama.Dex.Cassette.Import do
   @operation_columns """
   source, operation_id, summary, description, tags, scopes, destructive, deprecated,
   confirmation, bounds, identity, input_schema, input_schema_digest, success_schema,
-  success_schema_digest, error_schema, error_schema_digest, extensions, token_count
+  success_schema_digest, error_schema, error_schema_digest, extensions
   """
 
   @insert_operation """
   INSERT INTO operations (cassette, #{@operation_columns})
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   """
 
   @doc """

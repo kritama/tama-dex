@@ -13,7 +13,6 @@ defmodule Tama.Dex.Index.Store do
   alias Tama.Dex.Index.SQL
   alias Tama.Dex.JSON
   alias Tama.Dex.Operation
-  alias Tama.Dex.Search
 
   @doc """
   Installs a document as one source of a local cassette, replacing that
@@ -150,14 +149,6 @@ defmodule Tama.Dex.Index.Store do
   end
 
   defp insert_operation(conn, cassette, %Operation{} = operation) do
-    texts = [
-      operation.operation_id,
-      operation.summary,
-      Enum.join(operation.tags, " "),
-      operation.description,
-      fields_text(operation.fields)
-    ]
-
     {input, input_digest} = schema_text(operation.input_schema)
     {success, success_digest} = schema_text(operation.success_schema)
     {error, error_digest} = schema_text(operation.error_schema)
@@ -170,8 +161,8 @@ defmodule Tama.Dex.Index.Store do
           cassette, source, operation_id, summary, description, tags, scopes,
           destructive, deprecated, confirmation, bounds, identity,
           input_schema, input_schema_digest, success_schema, success_schema_digest,
-          error_schema, error_schema_digest, extensions, token_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          error_schema, error_schema_digest, extensions
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
           cassette,
@@ -192,8 +183,7 @@ defmodule Tama.Dex.Index.Store do
           success_digest,
           error,
           error_digest,
-          optional_json(operation.extensions),
-          Search.token_count(texts)
+          optional_json(operation.extensions)
         ]
       )
 
@@ -203,7 +193,14 @@ defmodule Tama.Dex.Index.Store do
       INSERT INTO operations_fts (rowid, operation_id, summary, tags, description, fields)
       VALUES (?, ?, ?, ?, ?, ?)
       """,
-      [id | texts]
+      [
+        id,
+        operation.operation_id,
+        operation.summary,
+        Enum.join(operation.tags, " "),
+        operation.description,
+        fields_text(operation.fields)
+      ]
     )
   end
 

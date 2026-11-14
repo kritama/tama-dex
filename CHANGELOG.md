@@ -26,7 +26,8 @@ The project follows Semantic Versioning and uses Conventional Commits.
   digest.
 - Added `Tama.Dex.search/3` and `describe/4`: scope-filtered FTS5 search
   across every cassette in one BM25 ranking, with caller text reduced to
-  quoted prefix terms, an exact `operationId` boosted first, BM25
+  quoted prefix terms that FTS5 tokenizes as it does indexed text, an
+  exact `operationId` boosted first, BM25
   statistics taken only from the operations the caller could see, cassette,
   source, tag, deprecated and destructive filters, and responses kept within
   64 KiB by dropping the lowest-ranked input schemas first.
