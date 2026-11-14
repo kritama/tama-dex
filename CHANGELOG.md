@@ -6,6 +6,8 @@ The project follows Semantic Versioning and uses Conventional Commits.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-14
+
 ### Added
 
 - Added the `:tama_dex` Mix library skeleton. It has no application callback,

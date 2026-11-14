@@ -3,9 +3,6 @@
 Index and search for operation catalogues, so an MCP server can expose just two
 tools, `search` and `execute`, in place of one tool per operation.
 
-> Pre-release: `0.1.0` is not yet published. The design is in
-> `openspec/changes/add-tama-dex-foundation/`.
-
 ## Why
 
 A host such as Macus exposes dozens of operations from several sources. For
