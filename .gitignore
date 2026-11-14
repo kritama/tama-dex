@@ -34,3 +34,4 @@ tama_dex-*.tar
 *.db
 *.db-*
 /.integration/
+*.tama-cassette
