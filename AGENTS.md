@@ -12,16 +12,21 @@ server.
 
 - Do not add an application callback. Loading or starting the dependency must
   not open a database, create files, start processes, or fetch anything. The
-  host starts `TamaDex.Index` under its own supervisor, with an explicit
+  host starts `Tama.Dex.Index` under its own supervisor, with an explicit
   database path, and passes the index into every call.
 - Do not add HTTP endpoints, listeners, Phoenix, Ecto, Plug servers, an MCP
-  server, or network fetching of documents. Hosts pass documents as data.
+  server, or network fetching of documents or cassettes. Hosts pass documents
+  as data and cassettes as local files.
+- Treat cassettes as untrusted until verified. Copy prebuilt rows only under a
+  host-supplied SHA-256 pin. Otherwise rebuild from the embedded documents
+  after checking their digests.
 - Do not depend on `tama_mcp`, `opsmaru_incus` or Macus. tama-dex supplies
   the `search`/`execute` tool definitions as data, plus handler functions. The
   host's MCP server wraps them.
 - tama-dex never performs an operation itself. `execute` validates the call
   and then hands it to an executor that the host registers for the operation's
-  source. Never retry or replay a dispatched call, because the operation may
+  source: a host adapter module implementing `Tama.Dex.Executor`. Producers
+  never need tama_dex to be executable; keep indexing a data contract. Never retry or replay a dispatched call, because the operation may
   already have been accepted.
 - Search visibility is not authorization. `execute` re-checks the caller's
   verified scopes against the operation's scopes on every call.

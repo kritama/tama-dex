@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        elixir:
+          - "1.18.4"
+          - "1.19.5"
+        otp:
+          - "27.3.4.16"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+          version-type: strict
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Audit Hex dependencies
+        run: mix hex.audit
+
+      - name: Run package checks
+        run: mix precommit
+
+      - name: Build Dialyzer PLT
+        run: mix dialyzer --plt
+
+      - name: Run Dialyzer
+        run: mix dialyzer --no-check
+
+      - name: Build documentation
+        run: mix docs
+
+      - name: Build Hex archive
+        run: mix hex.build
+
+  benchmark:
+    name: Import benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: mise.toml
+          version-type: strict
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      # Release evidence for the 2 s rebuild target (design Decision 10).
+      # It reports, and warns when over the target, but never fails.
+      - name: Measure indexing times
+        run: mix run bench/import.exs | tee -a "${GITHUB_STEP_SUMMARY}"
+
+  openspec:
+    name: OpenSpec
+    runs-on: ubuntu-latest
+
+    env:
+      # Only Node and OpenSpec are needed here; skip building Erlang and Elixir.
+      MISE_DISABLE_TOOLS: erlang,elixir
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+
+      - name: Validate OpenSpec strictly
+        run: mise run spec:validate
