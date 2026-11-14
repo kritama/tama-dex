@@ -83,10 +83,13 @@ defmodule Tama.Dex.IndexTest do
     end
 
     test "a relative path is expanded from the working directory", %{tmp_dir: tmp_dir} do
-      File.cd!(tmp_dir, fn ->
-        start_index!(path: "relative.sqlite3")
-        assert File.exists?(Path.join(tmp_dir, "relative.sqlite3"))
-      end)
+      # No File.cd!: the working directory is global, and async tests run
+      # while ExUnit is still loading other test files relative to it.
+      path = Path.relative_to_cwd(Path.join(tmp_dir, "relative.sqlite3"))
+      assert Path.type(path) == :relative
+
+      start_index!(path: path)
+      assert File.exists?(Path.join(tmp_dir, "relative.sqlite3"))
     end
 
     test "a database file in a missing directory fails to start", %{tmp_dir: tmp_dir} do
