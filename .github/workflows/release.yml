@@ -113,41 +113,49 @@ jobs:
         id: hex
         if: steps.tag.outputs.published == 'true'
         env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
           VERSION: ${{ steps.tag.outputs.version }}
         shell: bash
-        run: |
-          # The package and its documentation are uploaded separately, so a
-          # rerun after a failed documentation upload finishes the docs.
-          release="$(mktemp)"
-          status="$(curl --silent --show-error --output "${release}" --write-out '%{http_code}' \
-            "https://hex.pm/api/packages/tama_dex/releases/${VERSION}")"
-
-          case "${status}" in
-            200)
-              echo "exists=true" >> "${GITHUB_OUTPUT}"
-              echo "has_docs=$(jq -r '.has_docs == true' "${release}")" >> "${GITHUB_OUTPUT}"
-              ;;
-            404)
-              echo "exists=false" >> "${GITHUB_OUTPUT}"
-              echo "has_docs=false" >> "${GITHUB_OUTPUT}"
-              ;;
-            *)
-              echo "::error::Hex answered ${status} when asked for tama_dex ${VERSION}"
-              exit 1
-              ;;
-          esac
+        # The package and its documentation are uploaded separately. Either
+        # may be live, staged for an owner's approval or missing, and only a
+        # missing one is uploaded, so a rerun never uploads twice.
+        run: .github/scripts/hex-release-state.sh "${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish package
-        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.exists == 'false'
+        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.package == 'missing'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
         run: mix hex.publish package --yes
 
       - name: Publish documentation
-        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.has_docs == 'false'
+        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.docs == 'missing'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
         run: mix hex.publish docs --yes
+
+      # Hex holds releases published with an API key until an owner approves
+      # them. The GitHub release waits until both are live. Approve the staged
+      # release, then rerun this workflow to finish.
+      - name: Check the Hex release is live
+        if: steps.tag.outputs.published == 'true'
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        shell: bash
+        run: |
+          state="$(.github/scripts/hex-release-state.sh "${VERSION}")"
+          echo "${state}"
+          package="$(sed -n 's/^package=//p' <<< "${state}")"
+          docs="$(sed -n 's/^docs=//p' <<< "${state}")"
+          approval_url="$(sed -n 's/^approval_url=//p' <<< "${state}")"
+
+          if [[ "${package}" != "live" || "${docs}" != "live" ]]; then
+            message="tama_dex ${VERSION} is not live on Hex (package: ${package}, docs: ${docs})."
+            message+=" Approve it at ${approval_url}, then rerun this workflow."
+            echo "::error::${message}"
+            echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
 
       - name: Create GitHub release
         if: steps.tag.outputs.published == 'true'
