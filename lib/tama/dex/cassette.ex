@@ -319,7 +319,7 @@ defmodule Tama.Dex.Cassette do
     SQL.run!(
       conn,
       """
-      INSERT INTO cassettes (cassette, kind, version, content_digest, loaded_at)
+      INSERT INTO cassettes (name, kind, version, content_digest, loaded_at)
       VALUES (?, 'imported', ?, ?, ?)
       """,
       [name, version, digest, Format.epoch()]

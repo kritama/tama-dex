@@ -32,8 +32,8 @@ defmodule Tama.Dex.Index.Store do
         SQL.run!(
           conn,
           """
-          INSERT INTO cassettes (cassette, kind, loaded_at) VALUES (?, 'local', ?)
-          ON CONFLICT (cassette) DO UPDATE SET loaded_at = excluded.loaded_at
+          INSERT INTO cassettes (name, kind, loaded_at) VALUES (?, 'local', ?)
+          ON CONFLICT (name) DO UPDATE SET loaded_at = excluded.loaded_at
           """,
           [cassette, now]
         )
@@ -61,7 +61,7 @@ defmodule Tama.Dex.Index.Store do
   @doc "Checks that a cassette name is free or held by a cassette of `kind`, local or imported."
   @spec check_kind(SQL.conn(), String.t(), String.t()) :: :ok | {:error, :cassette_conflict}
   def check_kind(conn, cassette, kind) do
-    case SQL.query!(conn, "SELECT kind FROM cassettes WHERE cassette = ?", [cassette]) do
+    case SQL.query!(conn, "SELECT kind FROM cassettes WHERE name = ?", [cassette]) do
       [] -> :ok
       [[^kind]] -> :ok
       [[_other]] -> {:error, :cassette_conflict}
@@ -71,7 +71,7 @@ defmodule Tama.Dex.Index.Store do
   defp check_changed(conn, cassette, document) do
     case SQL.query!(
            conn,
-           "SELECT digest, profile FROM sources WHERE cassette = ? AND source = ?",
+           "SELECT digest, profile FROM sources WHERE cassette = ? AND name = ?",
            [cassette, document.source]
          ) do
       [[digest, profile]] when digest == document.digest and profile == document.profile ->
@@ -125,9 +125,9 @@ defmodule Tama.Dex.Index.Store do
     SQL.run!(
       conn,
       """
-      INSERT INTO sources (cassette, source, title, version, profile, digest, loaded_at)
+      INSERT INTO sources (cassette, name, title, version, profile, digest, loaded_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (cassette, source) DO UPDATE SET
+      ON CONFLICT (cassette, name) DO UPDATE SET
         title = excluded.title, version = excluded.version, profile = excluded.profile,
         digest = excluded.digest, loaded_at = excluded.loaded_at
       """,
@@ -227,13 +227,13 @@ defmodule Tama.Dex.Index.Store do
   @spec unload(SQL.conn(), String.t()) :: {:changed | :unchanged, :ok}
   def unload(conn, cassette) do
     SQL.transaction(conn, fn ->
-      case SQL.query!(conn, "SELECT 1 FROM cassettes WHERE cassette = ?", [cassette]) do
+      case SQL.query!(conn, "SELECT 1 FROM cassettes WHERE name = ?", [cassette]) do
         [] ->
           {:rollback, {:unchanged, :ok}}
 
         [_row] ->
           delete_operations(conn, "cassette = ?", [cassette])
-          SQL.run!(conn, "DELETE FROM cassettes WHERE cassette = ?", [cassette])
+          SQL.run!(conn, "DELETE FROM cassettes WHERE name = ?", [cassette])
           {:commit, {:changed, :ok}}
       end
     end)
@@ -269,10 +269,10 @@ defmodule Tama.Dex.Index.Store do
     sources =
       conn
       |> SQL.query!("""
-      SELECT s.cassette, s.source, s.title, s.version, s.profile, s.digest, s.loaded_at,
+      SELECT s.cassette, s.name, s.title, s.version, s.profile, s.digest, s.loaded_at,
              (SELECT count(*) FROM operations o
-              WHERE o.cassette = s.cassette AND o.source = s.source)
-      FROM sources s ORDER BY s.cassette, s.source
+              WHERE o.cassette = s.cassette AND o.source = s.name)
+      FROM sources s ORDER BY s.cassette, s.name
       """)
       |> Enum.group_by(&hd/1, fn [_cassette, source, title, version, profile, digest, at, count] ->
         %{
@@ -288,8 +288,8 @@ defmodule Tama.Dex.Index.Store do
 
     conn
     |> SQL.query!("""
-    SELECT cassette, kind, version, content_digest, mode, loaded_at
-    FROM cassettes ORDER BY cassette
+    SELECT name, kind, version, content_digest, mode, loaded_at
+    FROM cassettes ORDER BY name
     """)
     |> Enum.map(fn [cassette, kind, version, digest, mode, at] ->
       %{
@@ -308,7 +308,7 @@ defmodule Tama.Dex.Index.Store do
   @doc "The names of the committed cassettes."
   @spec cassette_names(SQL.conn()) :: [String.t()]
   def cassette_names(conn) do
-    conn |> SQL.query!("SELECT cassette FROM cassettes ORDER BY cassette") |> List.flatten()
+    conn |> SQL.query!("SELECT name FROM cassettes ORDER BY name") |> List.flatten()
   end
 
   @doc "The digests of every stored schema."

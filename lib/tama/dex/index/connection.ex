@@ -11,15 +11,16 @@ defmodule Tama.Dex.Index.Connection do
   alias Exqlite.Sqlite3
   alias Tama.Dex.Index.SQL
 
-  # Version 1 was only used during development, with a different
-  # operations table, so its databases and cassettes are rebuilt too.
-  @schema_version 2
+  # Versions 1 and 2 were only used during development, with a different
+  # operations table and with the cassette and source names in `cassette`
+  # and `source` columns, so their databases and cassettes are rebuilt too.
+  @schema_version 3
   @busy_timeout 5_000
 
   @tables """
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE cassettes (
-    cassette TEXT PRIMARY KEY,
+    name TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('imported', 'local')),
     version TEXT,
     content_digest TEXT,
@@ -28,14 +29,14 @@ defmodule Tama.Dex.Index.Connection do
     loaded_at TEXT NOT NULL
   );
   CREATE TABLE sources (
-    cassette TEXT NOT NULL REFERENCES cassettes(cassette) ON DELETE CASCADE,
-    source TEXT NOT NULL,
+    cassette TEXT NOT NULL REFERENCES cassettes(name) ON DELETE CASCADE,
+    name TEXT NOT NULL,
     title TEXT NOT NULL,
     version TEXT NOT NULL,
     profile TEXT NOT NULL,
     digest TEXT NOT NULL,
     loaded_at TEXT NOT NULL,
-    PRIMARY KEY (cassette, source)
+    PRIMARY KEY (cassette, name)
   );
   CREATE TABLE operations (
     id INTEGER PRIMARY KEY,
@@ -59,7 +60,7 @@ defmodule Tama.Dex.Index.Connection do
     error_schema_digest TEXT,
     extensions TEXT,
     UNIQUE (cassette, operation_id),
-    FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE
+    FOREIGN KEY (cassette, source) REFERENCES sources(cassette, name) ON DELETE CASCADE
   );
   CREATE INDEX operations_source ON operations (cassette, source);
   CREATE VIRTUAL TABLE operations_fts USING fts5(

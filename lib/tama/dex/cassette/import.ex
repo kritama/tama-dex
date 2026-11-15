@@ -75,7 +75,7 @@ defmodule Tama.Dex.Cassette.Import do
   defp check_name(_manifest, _options), do: :ok
 
   defp unchanged?(conn, name, manifest) do
-    SQL.query!(conn, "SELECT content_digest FROM cassettes WHERE cassette = ?", [name]) ==
+    SQL.query!(conn, "SELECT content_digest FROM cassettes WHERE name = ?", [name]) ==
       [[manifest.content_digest]]
   end
 
@@ -116,9 +116,9 @@ defmodule Tama.Dex.Cassette.Import do
       SQL.run!(
         conn,
         """
-        INSERT INTO cassettes (cassette, kind, version, content_digest, file_sha256, mode, loaded_at)
+        INSERT INTO cassettes (name, kind, version, content_digest, file_sha256, mode, loaded_at)
         VALUES (?, 'imported', ?, ?, ?, ?, ?)
-        ON CONFLICT (cassette) DO UPDATE SET
+        ON CONFLICT (name) DO UPDATE SET
           version = excluded.version, content_digest = excluded.content_digest,
           file_sha256 = excluded.file_sha256, mode = excluded.mode,
           loaded_at = excluded.loaded_at
@@ -148,12 +148,12 @@ defmodule Tama.Dex.Cassette.Import do
     for [source, title, version, profile, digest] <-
           SQL.query!(
             cassette,
-            "SELECT source, title, version, profile, digest FROM sources ORDER BY source"
+            "SELECT name, title, version, profile, digest FROM sources ORDER BY name"
           ) do
       SQL.run!(
         conn,
         """
-        INSERT INTO sources (cassette, source, title, version, profile, digest, loaded_at)
+        INSERT INTO sources (cassette, name, title, version, profile, digest, loaded_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [name, source, title, version, profile, digest, now]
@@ -186,7 +186,7 @@ defmodule Tama.Dex.Cassette.Import do
   end
 
   defp result(conn, name, verified, changed) do
-    [[mode]] = SQL.query!(conn, "SELECT mode FROM cassettes WHERE cassette = ?", [name])
+    [[mode]] = SQL.query!(conn, "SELECT mode FROM cassettes WHERE name = ?", [name])
     manifest = verified.manifest
 
     %{

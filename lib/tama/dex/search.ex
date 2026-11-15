@@ -166,7 +166,7 @@ defmodule Tama.Dex.Search do
             conn,
             """
             SELECT #{@columns}
-            FROM operations o JOIN cassettes c ON c.cassette = o.cassette
+            FROM operations o JOIN cassettes c ON c.name = o.cassette
             WHERE #{filters}
             ORDER BY o.cassette, o.operation_id
             LIMIT ?
@@ -217,7 +217,7 @@ defmodule Tama.Dex.Search do
       SELECT o.id, o.cassette, o.operation_id, d.sz
       FROM operations_fts f
       JOIN operations o ON o.id = f.rowid
-      JOIN cassettes c ON c.cassette = o.cassette
+      JOIN cassettes c ON c.name = o.cassette
       JOIN operations_fts_docsize d ON d.id = f.rowid
       WHERE operations_fts MATCH ? AND #{filters}
       """,
@@ -260,7 +260,7 @@ defmodule Tama.Dex.Search do
         """
         SELECT d.sz
         FROM operations o
-        JOIN cassettes c ON c.cassette = o.cassette
+        JOIN cassettes c ON c.name = o.cassette
         JOIN operations_fts_docsize d ON d.id = o.id
         WHERE #{filters}
         """,
@@ -280,7 +280,7 @@ defmodule Tama.Dex.Search do
         SELECT count(*)
         FROM operations_fts f
         JOIN operations o ON o.id = f.rowid
-        JOIN cassettes c ON c.cassette = o.cassette
+        JOIN cassettes c ON c.name = o.cassette
         WHERE operations_fts MATCH ? AND #{filters}
         """,
         [expression | args]
@@ -354,7 +354,7 @@ defmodule Tama.Dex.Search do
         conn,
         """
         SELECT o.id, #{@columns}
-        FROM operations o JOIN cassettes c ON c.cassette = o.cassette
+        FROM operations o JOIN cassettes c ON c.name = o.cassette
         WHERE o.id IN (SELECT value FROM json_each(?))
         """,
         [Jason.encode!(ids)]
@@ -496,7 +496,7 @@ defmodule Tama.Dex.Search do
            conn,
            """
            SELECT #{@columns}, #{@detail_columns}
-           FROM operations o JOIN cassettes c ON c.cassette = o.cassette
+           FROM operations o JOIN cassettes c ON c.name = o.cassette
            WHERE o.cassette = ? AND o.operation_id = ? AND #{visible_clause()}
            """,
            [cassette, operation_id, Jason.encode!(scopes)]

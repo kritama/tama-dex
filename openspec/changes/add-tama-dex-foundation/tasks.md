@@ -17,7 +17,7 @@
 - [x] 3.1 Implement `Tama.Dex.Index` (design Decisions 1 and 4, with the `cassettes`, `sources` and `operations` tables keyed by cassette), with separate read and write connections, the writer running in a linked process, and an in-memory database for `:memory` opened through the `memdb` VFS under a name unique to the index. First confirm that exqlite 0.43 opens URI filenames (`mode=ro`, `vfs=memdb`).
   - `start_link/1` takes a required `path` (file or `:memory`), an optional `name` and limits.
   - A database file is created with mode 0600, in WAL mode, with foreign keys on.
-  - Schema version 1 is created on first open. Any other version is dropped and recreated, emitting `[:tama_dex, :index, :recreated]`.
+  - Schema version 3 is created on first open (1 and 2 were development-only). Any other version is dropped and recreated, emitting `[:tama_dex, :index, :recreated]`.
   - Compiled schemas are cached lazily, on first execute, in a public ETS table keyed by the SHA-256 of the stored schema text. Opening compiles nothing, and entries no row references are dropped after each commit or unload.
 - [x] 3.2 Implement cassette namespaces and `Tama.Dex.load/3`, `unload/2` and `cassettes/1` (Decision 3).
   - Validate cassette names, and fail `cassette_conflict` when a name is held by the other kind.

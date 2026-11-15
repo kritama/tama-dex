@@ -29,7 +29,7 @@ defmodule Tama.Dex.IndexTest do
     Index.write(index, fn conn ->
       SQL.run!(
         conn,
-        "INSERT INTO cassettes (cassette, kind, version, loaded_at) VALUES (?, 'imported', '1.0.0', ?)",
+        "INSERT INTO cassettes (name, kind, version, loaded_at) VALUES (?, 'imported', '1.0.0', ?)",
         [cassette, DateTime.to_iso8601(DateTime.utc_now())]
       )
 
@@ -189,7 +189,7 @@ defmodule Tama.Dex.IndexTest do
       snapshot = fn ->
         {rows(index, "SELECT * FROM operations WHERE cassette = 'beta' ORDER BY id"),
          rows(index, "SELECT * FROM sources WHERE cassette = 'beta'"),
-         rows(index, "SELECT * FROM cassettes WHERE cassette = 'beta'"),
+         rows(index, "SELECT * FROM cassettes WHERE name = 'beta'"),
          rows(
            index,
            "SELECT rowid, * FROM operations_fts WHERE rowid IN (SELECT id FROM operations WHERE cassette = 'beta')"
@@ -464,27 +464,40 @@ defmodule Tama.Dex.IndexTest do
       refute_received {[:tama_dex, :index, :recreated], ^ref, _measurements, _metadata}
     end
 
-    test "a development version 1 index is recreated before any write", %{tmp_dir: tmp_dir} do
-      # Version 1 had a required operations.token_count column, which loads
-      # no longer fill.
-      path = Path.join(tmp_dir, "v1.sqlite3")
-      {:ok, conn} = Sqlite3.open(path)
+    # Version 1 had a required operations.token_count column, which loads
+    # no longer fill. Version 2 named cassettes and sources by `cassette`
+    # and `source` columns instead of `name`.
+    for {version, tables} <- [
+          {1, "CREATE TABLE operations (id INTEGER PRIMARY KEY, token_count INTEGER NOT NULL);"},
+          {2,
+           """
+           CREATE TABLE cassettes (
+             cassette TEXT PRIMARY KEY, kind TEXT NOT NULL, loaded_at TEXT NOT NULL
+           );
+           """}
+        ] do
+      test "a development version #{version} index is recreated before any write",
+           %{tmp_dir: tmp_dir} do
+        path = Path.join(tmp_dir, "v#{unquote(version)}.sqlite3")
+        {:ok, conn} = Sqlite3.open(path)
 
-      :ok =
-        Sqlite3.execute(conn, """
-        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO meta VALUES ('schema_version', '1');
-        CREATE TABLE operations (id INTEGER PRIMARY KEY, token_count INTEGER NOT NULL);
-        """)
+        :ok =
+          Sqlite3.execute(conn, """
+          CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+          INSERT INTO meta VALUES ('schema_version', '#{unquote(version)}');
+          #{unquote(tables)}
+          """)
 
-      :ok = Sqlite3.close(conn)
+        :ok = Sqlite3.close(conn)
 
-      index = start_supervised!({Index, path: path})
+        index = start_supervised!({Index, path: path})
 
-      assert {:ok, %{changed: true}} =
-               Tama.Dex.load(index, document("acme", ["one"]), cassette: "acme")
+        assert {:ok, %{changed: true}} =
+                 Tama.Dex.load(index, document("acme", ["one"]), cassette: "acme")
 
-      assert rows(index, "SELECT value FROM meta WHERE key = 'schema_version'") == [["2"]]
+        assert rows(index, "SELECT value FROM meta WHERE key = 'schema_version'") == [["3"]]
+        assert [%{cassette: "acme"}] = Tama.Dex.cassettes(index)
+      end
     end
 
     test "an older schema version is recreated empty", %{tmp_dir: tmp_dir} do
@@ -507,7 +520,7 @@ defmodule Tama.Dex.IndexTest do
       ref = :telemetry_test.attach_event_handlers(self(), [[:tama_dex, :index, :recreated]])
       index = start_index!(path: path)
 
-      assert_received {[:tama_dex, :index, :recreated], ^ref, %{}, %{old_version: 0, version: 2}}
+      assert_received {[:tama_dex, :index, :recreated], ^ref, %{}, %{old_version: 0, version: 3}}
       assert Tama.Dex.cassettes(index) == []
 
       names =

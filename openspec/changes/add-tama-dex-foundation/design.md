@@ -231,15 +231,15 @@ namespace.
   above would barely change, so this can be revisited if a host needs
   zero-copy startup or many large cassettes.
 
-### 4. Storage schema (version 2)
+### 4. Storage schema (version 3)
 
 ```sql
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);            -- schema_version = 1
-CREATE TABLE cassettes (cassette TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('imported', 'local')),
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);            -- schema_version = 3
+CREATE TABLE cassettes (name TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('imported', 'local')),
   version TEXT, content_digest TEXT, file_sha256 TEXT, mode TEXT, loaded_at TEXT NOT NULL);
-CREATE TABLE sources (cassette TEXT NOT NULL REFERENCES cassettes(cassette) ON DELETE CASCADE,
-  source TEXT NOT NULL, title TEXT NOT NULL, version TEXT NOT NULL, profile TEXT NOT NULL,
-  digest TEXT NOT NULL, loaded_at TEXT NOT NULL, PRIMARY KEY (cassette, source));
+CREATE TABLE sources (cassette TEXT NOT NULL REFERENCES cassettes(name) ON DELETE CASCADE,
+  name TEXT NOT NULL, title TEXT NOT NULL, version TEXT NOT NULL, profile TEXT NOT NULL,
+  digest TEXT NOT NULL, loaded_at TEXT NOT NULL, PRIMARY KEY (cassette, name));
 CREATE TABLE operations (id INTEGER PRIMARY KEY, cassette TEXT NOT NULL, source TEXT NOT NULL,
   operation_id TEXT NOT NULL,
   summary TEXT NOT NULL, description TEXT NOT NULL, tags TEXT NOT NULL, scopes TEXT NOT NULL,
@@ -249,7 +249,7 @@ CREATE TABLE operations (id INTEGER PRIMARY KEY, cassette TEXT NOT NULL, source 
   success_schema TEXT NOT NULL, success_schema_digest TEXT NOT NULL,
   error_schema TEXT, error_schema_digest TEXT, extensions TEXT,
   UNIQUE (cassette, operation_id),
-  FOREIGN KEY (cassette, source) REFERENCES sources(cassette, source) ON DELETE CASCADE);
+  FOREIGN KEY (cassette, source) REFERENCES sources(cassette, name) ON DELETE CASCADE);
 CREATE INDEX operations_source ON operations (cassette, source);
 CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, description, fields,
   tokenize='unicode61');                                                  -- rowid = operations.id
@@ -270,16 +270,22 @@ CREATE VIRTUAL TABLE operations_fts USING fts5(operation_id, summary, tags, desc
 - Every cassette shares the one FTS table, so one ranking covers all
   cassettes' operations.
 - On open, a missing `meta` table means the database is created. A
-  `schema_version` other than 2 means every table is dropped and recreated
+  `schema_version` other than 3 means every table is dropped and recreated
   empty, a `{:recreated, old}` telemetry event fires, and the host reloads its
   documents. A newer version is never written by older code.
 - The schema version covers both the table definitions and how rows are
   derived from documents: canonical JSON, bundled schemas, the FTS text and
   any truncation. A change to either needs a new version, so rows built by
   two tama-dex releases with the same schema version are interchangeable.
-- Version 1 was used only during development, with a different
-  `operations` table. Version 2 is the first released, so indexes and
-  cassettes built during development are recreated or rebuilt.
+- Each table's own key is `name`: `cassettes.name` is the cassette name,
+  as in the cassette manifest, and `sources.name` is the source ID. Columns
+  that refer to them are named after the table they refer to (`cassette`,
+  `source`).
+- Versions 1 and 2 were used only during development: version 1 had a
+  different `operations` table, and version 2 keyed `cassettes` and
+  `sources` by `cassette` and `source` columns. Version 3 is the first
+  released, so indexes and cassettes built during development are recreated
+  or rebuilt.
 
 ### 5. Search
 
