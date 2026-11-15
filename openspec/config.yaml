@@ -1,0 +1,12 @@
+schema: spec-driven
+context: |
+  tama-dex is a pure Elixir library (:tama_dex). It ingests operation documents in the
+  Tama operations profile of OpenAPI 3.1 (tama-operations/1, docs/tama-operations-profile.md),
+  indexes them in a host-supervised SQLite database (exqlite, FTS5), and provides
+  scope-filtered search and validated execute for hosts whose MCP server exposes only
+  `search` and `execute`. Producers (opsmaru_incus, Macus) publish profile documents as
+  data. Hosts (first Macus) load them, register one executor per source, and own the MCP
+  server, authorization and process supervision. The library starts nothing on load, has
+  no listener or network fetching, never runs operations itself, never retries a
+  dispatched call, and never stores or logs execute inputs or results. It does not
+  depend on tama_mcp, opsmaru_incus or Macus.

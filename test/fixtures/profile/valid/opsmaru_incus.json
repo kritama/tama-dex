@@ -1,0 +1,248 @@
+{
+  "openapi": "3.1.1",
+  "jsonSchemaDialect": "https://spec.openapis.org/oas/3.1/dialect/base",
+  "info": {
+    "title": "opsmaru_incus operations",
+    "version": "0.2.0"
+  },
+  "x-tama-profile": "tama-operations/1",
+  "x-tama-source": "opsmaru_incus",
+  "x-opsmaru-generator": "OpsmaruIncus.Operations.Native",
+  "servers": [{"url": "https://incus.invalid"}],
+  "tags": [{"name": "instance"}, {"name": "image"}],
+  "paths": {
+    "/operations/incus_instance_list": {
+      "post": {
+        "operationId": "incus_instance_list",
+        "summary": "List instances",
+        "description": "List the instances in a project, optionally filtered by type and status.",
+        "tags": ["instance"],
+        "x-tama-scopes": ["incus.read"],
+        "x-tama-destructive": false,
+        "x-tama-bounds": {"max_items": 500},
+        "x-opsmaru-requires": ["GetInstances"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project": {"$ref": "#/components/schemas/Project"},
+                  "type": {"type": "string", "enum": ["container", "virtual-machine"], "description": "The instance type to list."},
+                  "status": {"type": "string", "description": "Only list instances in this status."}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The instances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instances": {"type": "array", "items": {"$ref": "#/components/schemas/Instance"}}
+                  },
+                  "required": ["instances"]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An Incus error",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/operations/incus_instance_create": {
+      "post": {
+        "operationId": "incus_instance_create",
+        "summary": "Create an instance",
+        "description": "Create an instance from an image and wait for the create operation to finish.",
+        "tags": ["instance"],
+        "x-tama-scopes": ["incus.write"],
+        "x-tama-destructive": false,
+        "x-tama-bounds": {"max_wait_seconds": 300},
+        "x-tama-identity": ["operation_id", "status"],
+        "x-opsmaru-requires": ["CreateInstance", "GetOperationWait"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project": {"$ref": "#/components/schemas/Project"},
+                  "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$", "description": "The new instance's name."},
+                  "image": {"type": "string", "description": "The image alias or fingerprint to create from."},
+                  "type": {"type": "string", "enum": ["container", "virtual-machine"]},
+                  "config": {"type": "object", "additionalProperties": {"type": "string"}}
+                },
+                "required": ["name", "image"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The finished operation",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationResult"}}}
+          },
+          "default": {
+            "description": "An Incus error",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/operations/incus_instance_exec": {
+      "post": {
+        "operationId": "incus_instance_exec",
+        "summary": "Run a command in an instance",
+        "description": "Run a command inside a running instance and return its exit code and bounded output.",
+        "tags": ["instance", "exec"],
+        "x-tama-scopes": ["incus.exec"],
+        "x-tama-destructive": false,
+        "x-tama-bounds": {"max_wait_seconds": 120, "max_output_bytes": 262144},
+        "x-tama-identity": ["operation_id"],
+        "x-opsmaru-requires": ["ExecInstance", "GetOperationWait"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project": {"$ref": "#/components/schemas/Project"},
+                  "instance": {"type": "string", "description": "The instance to run the command in."},
+                  "command": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The command and its arguments."},
+                  "cwd": {"type": "string"}
+                },
+                "required": ["instance", "command"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The command's result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "operation_id": {"type": "string"},
+                    "exit_code": {"type": "integer"},
+                    "stdout": {"type": "string"},
+                    "stderr": {"type": "string"}
+                  },
+                  "required": ["operation_id", "exit_code"]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An Incus error",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/operations/incus_image_delete": {
+      "post": {
+        "operationId": "incus_image_delete",
+        "summary": "Delete an image",
+        "description": "Delete an image by fingerprint and wait for the delete operation to finish.",
+        "tags": ["image"],
+        "x-tama-scopes": ["incus.delete"],
+        "x-tama-destructive": true,
+        "x-tama-confirmation": {"field": "confirm", "description": "the full fingerprint"},
+        "x-tama-bounds": {"max_wait_seconds": 60},
+        "x-tama-identity": ["operation_id", "status"],
+        "x-opsmaru-requires": ["DeleteImage", "GetOperationWait"],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeleteImage", "description": "Which image to delete."}}}
+        },
+        "responses": {
+          "200": {
+            "description": "The finished operation",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationResult"}}}
+          },
+          "default": {
+            "description": "An Incus error",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Project": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The Incus project. Defaults to the client's project."
+      },
+      "Fingerprint": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$",
+        "description": "The image's full SHA-256 fingerprint."
+      },
+      "DeleteImage": {
+        "type": "object",
+        "properties": {
+          "project": {"$ref": "#/components/schemas/Project"},
+          "fingerprint": {"$ref": "#/components/schemas/Fingerprint"},
+          "confirm": {"type": "string", "description": "Repeat the full fingerprint to confirm."}
+        },
+        "required": ["fingerprint", "confirm"],
+        "additionalProperties": false
+      },
+      "Instance": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string"},
+          "status": {"type": "string"}
+        },
+        "required": ["name", "status"]
+      },
+      "OperationResult": {
+        "type": "object",
+        "properties": {
+          "operation_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["Success", "Failure", "Cancelled"]},
+          "resource": {"type": "string"}
+        },
+        "required": ["operation_id", "status"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string"},
+              "message": {"type": "string"},
+              "operation_id": {"type": "string"}
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      },
+      "Unused": {
+        "type": "object",
+        "description": "A component no operation references."
+      }
+    }
+  }
+}

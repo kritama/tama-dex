@@ -2,11 +2,16 @@
 erlang = "27.3.4.16"
 elixir = "1.19.5-otp-27"
 node = "26.10.0"
+actionlint = "1.7.12"
 "npm:@fission-ai/openspec" = "1.14.0"
 
 [tasks."spec:validate"]
 description = "Validate all OpenSpec artifacts strictly"
 run = "openspec validate --all --strict --no-interactive"
+
+[tasks."ci:lint"]
+description = "Lint GitHub Actions workflows"
+run = "actionlint"
 
 [tasks.check]
 description = "Run mix precommit and strict OpenSpec validation"
