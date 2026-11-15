@@ -116,9 +116,10 @@ jobs:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
           VERSION: ${{ steps.tag.outputs.version }}
         shell: bash
-        # The package and its documentation are uploaded separately. Either
-        # may be live, staged for an owner's approval or missing, and only a
-        # missing one is uploaded, so a rerun never uploads twice.
+        # The package and its documentation are uploaded separately. Each is
+        # live, approved but not served yet, staged for an owner's approval,
+        # or missing, and only a missing one is uploaded, so a rerun never
+        # uploads twice.
         run: .github/scripts/hex-release-state.sh "${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish package
@@ -151,7 +152,13 @@ jobs:
 
           if [[ "${package}" != "live" || "${docs}" != "live" ]]; then
             message="tama_dex ${VERSION} is not live on Hex (package: ${package}, docs: ${docs})."
-            message+=" Approve it at ${approval_url}, then rerun this workflow."
+
+            if [[ "${package}" == "staged" || "${docs}" == "staged" ]]; then
+              message+=" Approve it at ${approval_url}, then rerun this workflow."
+            else
+              message+=" Rerun this workflow once Hex serves it."
+            fi
+
             echo "::error::${message}"
             echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
             exit 1

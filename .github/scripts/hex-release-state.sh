@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Prints the Hex state of one tama_dex release as GitHub step outputs:
 #
-#   package=live|staged|missing
-#   docs=live|staged|missing
+#   package=live|approved|staged|missing
+#   docs=live|approved|staged|missing
 #   approval_url=<the staged release page, when anything is staged>
 #
 # Hex stages releases and docs published with an API key until an owner
 # approves them. A staged release is not served by the releases endpoint,
 # so its state is read from the staged endpoints, which need HEX_API_KEY.
+#
+# - live: the public release endpoint serves it.
+# - approved: approved, but not served yet. Don't upload it again.
+# - staged: waiting for an owner's approval. Don't upload it again.
+# - missing: never uploaded, or its staged upload was rejected or expired.
+#
+# Any other answer stops with an error rather than risk a second upload.
 #
 # Usage: hex-release-state.sh VERSION
 set -euo pipefail
@@ -28,7 +35,9 @@ get() {
   curl "${args[@]}" "$1"
 }
 
-# staged URL: live, staged or missing, from a staged-release endpoint.
+# staged URL: approved, staged or missing, from a staged-release endpoint.
+# It runs in a command substitution, where errexit doesn't apply, so every
+# failure exits explicitly.
 staged() {
   if [[ -z "${HEX_API_KEY:-}" ]]; then
     echo "::error::HEX_API_KEY is needed to read staged Hex releases" >&2
@@ -36,19 +45,23 @@ staged() {
   fi
 
   local status state
-  status="$(get "$1" "${HEX_API_KEY}")"
+  status="$(get "$1" "${HEX_API_KEY}")" || exit 1
 
   case "${status}" in
     200)
-      state="$(jq -r '.status' "${body}")"
+      if ! state="$(jq -er '.status | strings' "${body}")"; then
+        echo "::error::Hex answered $1 without a readable status" >&2
+        exit 1
+      fi
 
       case "${state}" in
-        staged) echo staged ;;
-        # Approved, but the release isn't served yet. Publishing again would
-        # fail, so treat it as live; the live check reports the delay.
-        approved) echo live ;;
-        # Rejected or expired: nothing is pending, so publish again.
-        *) echo missing ;;
+        staged | approved) echo "${state}" ;;
+        # Nothing is pending, so it can be uploaded again.
+        rejected | expired) echo missing ;;
+        *)
+          echo "::error::Hex answered $1 with an unknown status" >&2
+          exit 1
+          ;;
       esac
       ;;
     404) echo missing ;;
