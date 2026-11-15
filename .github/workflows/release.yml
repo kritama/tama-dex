@@ -116,23 +116,38 @@ jobs:
           VERSION: ${{ steps.tag.outputs.version }}
         shell: bash
         run: |
-          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+          # The package and its documentation are uploaded separately, so a
+          # rerun after a failed documentation upload finishes the docs.
+          release="$(mktemp)"
+          status="$(curl --silent --show-error --output "${release}" --write-out '%{http_code}' \
             "https://hex.pm/api/packages/tama_dex/releases/${VERSION}")"
 
           case "${status}" in
-            200) echo "exists=true" >> "${GITHUB_OUTPUT}" ;;
-            404) echo "exists=false" >> "${GITHUB_OUTPUT}" ;;
+            200)
+              echo "exists=true" >> "${GITHUB_OUTPUT}"
+              echo "has_docs=$(jq -r '.has_docs == true' "${release}")" >> "${GITHUB_OUTPUT}"
+              ;;
+            404)
+              echo "exists=false" >> "${GITHUB_OUTPUT}"
+              echo "has_docs=false" >> "${GITHUB_OUTPUT}"
+              ;;
             *)
               echo "::error::Hex answered ${status} when asked for tama_dex ${VERSION}"
               exit 1
               ;;
           esac
 
-      - name: Publish package and documentation
+      - name: Publish package
         if: steps.tag.outputs.published == 'true' && steps.hex.outputs.exists == 'false'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: mix hex.publish --yes
+        run: mix hex.publish package --yes
+
+      - name: Publish documentation
+        if: steps.tag.outputs.published == 'true' && steps.hex.outputs.has_docs == 'false'
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish docs --yes
 
       - name: Create GitHub release
         if: steps.tag.outputs.published == 'true'

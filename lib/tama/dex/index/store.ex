@@ -260,6 +260,12 @@ defmodule Tama.Dex.Index.Store do
   @doc "Every installed cassette with its sources, ordered by name."
   @spec cassettes(SQL.conn()) :: [map()]
   def cassettes(conn) do
+    # One read transaction, so an import committing between the two queries
+    # can't pair a new cassette version with its old sources.
+    SQL.read_transaction(conn, fn -> read_cassettes(conn) end)
+  end
+
+  defp read_cassettes(conn) do
     sources =
       conn
       |> SQL.query!("""

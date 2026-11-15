@@ -86,7 +86,7 @@ defmodule Tama.Dex.Cassette.Import do
   end
 
   defp replace(conn, cassette, name, verified, :copy, job) do
-    transaction(conn, name, verified, :copy, fn now ->
+    transaction(conn, name, verified, :copy, job, fn now ->
       copy(conn, cassette, name, now, job)
     end)
 
@@ -96,19 +96,17 @@ defmodule Tama.Dex.Cassette.Import do
   defp replace(conn, _cassette, name, verified, :rebuild, job) do
     total = length(verified.documents)
 
-    transaction(conn, name, verified, :rebuild, fn now ->
+    transaction(conn, name, verified, :rebuild, job, fn now ->
       verified.documents
       |> Enum.with_index(1)
       |> Enum.each(fn {document, done} ->
         Store.write_source(conn, name, document, now, job)
         Job.progress(job, done, total)
       end)
-
-      Job.checkpoint(job)
     end)
   end
 
-  defp transaction(conn, name, verified, mode, write) do
+  defp transaction(conn, name, verified, mode, job, write) do
     manifest = verified.manifest
     now = Store.now()
 
@@ -136,6 +134,10 @@ defmodule Tama.Dex.Cassette.Import do
       )
 
       write.(now)
+      # The last check before committing, in both modes: a deadline that
+      # passed during the final write, or a cassette with no operations to
+      # copy, still rolls back instead of replacing the installed cassette.
+      Job.checkpoint(job)
       {:commit, :ok}
     end)
   end
